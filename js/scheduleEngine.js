@@ -35,7 +35,7 @@ window.App = window.App || {};
   /**
    * 純計算：不會修改任何全域狀態，只根據傳入的 snapshot 算出這一天的班表。
    * @param {string} dateStr
-   * @param {{members, dutyCounts, washState, cleanupGroups, dutySizeTable}} snapshot
+   * @param {{members, dutyCounts, washState, cleanupGroups, laundryState, dutySizeTable}} snapshot
    */
   function computeDay(dateStr, snapshot) {
     const activeMembers = snapshot.members.filter((m) => window.App.State.isActiveOn(m, dateStr));
@@ -86,6 +86,9 @@ window.App = window.App || {};
         dishwash: dishwashIds,
         foodwaste: otherAssign.foodwaste,
         lunchbag: otherAssign.lunchbag,
+        // 抬便當上車/上樓的人就是包便當袋子的那幾位，不另外排
+        carryVehicle: otherAssign.lunchbag.slice(),
+        carryUpstairs: otherAssign.lunchbag.slice(),
         floor: otherAssign.floor,
         wipe: otherAssign.wipe,
         delivery: deliveryIds,
@@ -100,13 +103,22 @@ window.App = window.App || {};
       incrementCounts(newDutyCounts, meals[meal].cleanup, "cleanup");
     });
 
+    const laundryDay = window.App.Laundry.computeLaundryDay(snapshot.laundryState, snapshot.members, dateStr);
+    laundryDay.warnings.forEach((w) => warnings.push(w));
+    const daily = { laundryUp: laundryDay.up, laundryDown: laundryDay.down };
+    // 抬上來與抬下去是同一組人一天各做一次，合併成一個 laundry 次數統計就夠了
+    incrementCounts(newDutyCounts, laundryDay.up, "laundry");
+    incrementCounts(newDutyCounts, laundryDay.down, "laundry");
+
     return {
       ok: true,
       meals,
+      daily,
       warnings,
       sizeConfig,
       newWashState: washDay.newWashState,
       newCleanupGroups: cleanupDay.newCleanupGroups,
+      newLaundryState: laundryDay.newLaundryState,
       newDutyCounts,
     };
   }
@@ -121,6 +133,7 @@ window.App = window.App || {};
       dutyCounts: state.dutyCounts,
       washState: state.washState,
       cleanupGroups: state.cleanupGroups,
+      laundryState: state.laundryState,
       dutySizeTable: state.dutySizeTable,
     };
 
@@ -141,6 +154,7 @@ window.App = window.App || {};
 
       state.schedules[dateStr] = {
         meals: result.meals,
+        daily: result.daily,
         warnings: result.warnings.slice(),
         sizeConfig: result.sizeConfig,
       };
@@ -148,6 +162,7 @@ window.App = window.App || {};
       running.dutyCounts = result.newDutyCounts;
       running.washState = result.newWashState;
       running.cleanupGroups = result.newCleanupGroups;
+      running.laundryState = result.newLaundryState;
 
       // 當天的採買調整要在推進到下一天之前套用，這樣代理人選才是依當下的次數決定
       (shoppingByDate[dateStr] || []).forEach((entry) => {
@@ -158,6 +173,7 @@ window.App = window.App || {};
     state.dutyCounts = running.dutyCounts;
     state.washState = running.washState;
     state.cleanupGroups = running.cleanupGroups;
+    state.laundryState = running.laundryState;
 
     // 採買次數不是排班排出來的，直接依 log 統計
     state.shoppingLog.forEach((entry) => {
@@ -177,6 +193,7 @@ window.App = window.App || {};
       dutyCounts: state.dutyCounts,
       washState: state.washState,
       cleanupGroups: state.cleanupGroups,
+      laundryState: state.laundryState,
       dutySizeTable: state.dutySizeTable,
     };
   }
@@ -193,6 +210,7 @@ window.App = window.App || {};
       dutyCounts: {},
       washState: window.App.State.defaultWashState(),
       cleanupGroups: window.App.State.defaultCleanupGroups(),
+      laundryState: window.App.State.defaultLaundryState(),
     };
     state.members.forEach((m) => (snapshot.dutyCounts[m.id] = window.App.State.emptyDutyCount()));
 
@@ -211,6 +229,7 @@ window.App = window.App || {};
         snapshot.dutyCounts = result.newDutyCounts;
         snapshot.washState = result.newWashState;
         snapshot.cleanupGroups = result.newCleanupGroups;
+        snapshot.laundryState = result.newLaundryState;
         const daySchedule = { meals: result.meals, warnings: result.warnings };
         (shoppingByDate[d] || []).forEach((entry) => {
           window.App.Shopping.applyAdjustment(daySchedule, snapshot, entry);
@@ -234,6 +253,7 @@ window.App = window.App || {};
       ok: true,
       committed: alreadyCommitted,
       meals: result.meals,
+      daily: result.daily,
       warnings: result.warnings,
     };
   }
@@ -255,7 +275,7 @@ window.App = window.App || {};
     }
 
     const schedule = state.schedules[dateStr];
-    return { ok: true, meals: schedule.meals, warnings: schedule.warnings };
+    return { ok: true, meals: schedule.meals, daily: schedule.daily, warnings: schedule.warnings };
   }
 
   /** 取消某一天的紀錄 */

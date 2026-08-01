@@ -19,20 +19,33 @@ window.App.UI = window.App.UI || {};
     return ids && ids.length ? ids.map(memberLabel).join("、") : "（無）";
   }
 
-  const DUTY_ROWS = ["dishwash", "foodwaste", "lunchbag", "wipe", "floor", "delivery", "cleanup"];
+  function dutyLine(duty, ids) {
+    return `
+      <div class="duty-line">
+        <span class="duty-label">${window.App.State.DUTY_ICONS[duty]} ${window.App.State.DUTY_LABELS[duty]}</span>
+        <span class="duty-names">${namesOrDash(ids)}</span>
+      </div>`;
+  }
 
-  function mealCard(mealKey, mealData) {
-    const label = window.App.State.MEAL_LABELS[mealKey];
+  function mealCard(mealKey, mealData, activeMembers) {
+    const helpers = window.App.DutyView.lunchbagHelpers(mealData, activeMembers);
     return `
       <div class="meal-card">
-        <h3>${label}</h3>
-        ${DUTY_ROWS.map(
-          (duty) => `
-          <div class="duty-line">
-            <span class="duty-label">${window.App.State.DUTY_ICONS[duty]} ${window.App.State.DUTY_LABELS[duty]}</span>
-            <span class="duty-names">${namesOrDash(mealData[duty])}</span>
-          </div>`
-        ).join("")}
+        <h3>${window.App.State.MEAL_LABELS[mealKey]}</h3>
+        ${window.App.State.MEAL_DUTY_ROWS.map((duty) => dutyLine(duty, mealData[duty])).join("")}
+        <div class="duty-line">
+          <span class="duty-label">🤝 一起幫忙包便當</span>
+          <span class="duty-names">${namesOrDash(helpers)}</span>
+        </div>
+      </div>`;
+  }
+
+  function dailyCard(daily) {
+    if (!daily || (!(daily.laundryUp || []).length && !(daily.laundryDown || []).length)) return "";
+    return `
+      <div class="meal-card">
+        <h3>全日</h3>
+        ${window.App.State.DAILY_DUTY_ROWS.map((duty) => dutyLine(duty, daily[duty])).join("")}
       </div>`;
   }
 
@@ -85,7 +98,10 @@ window.App.UI = window.App.UI || {};
         : ""
       }
       <div class="meal-grid">
-        ${window.App.State.MEAL_KEYS.map((meal) => mealCard(meal, schedule.meals[meal])).join("")}
+        ${window.App.State.MEAL_KEYS.map((meal) =>
+          mealCard(meal, schedule.meals[meal], window.App.State.activeMembersOn(selectedDate))
+        ).join("")}
+        ${dailyCard(schedule.daily)}
       </div>
     `;
   }
@@ -106,7 +122,7 @@ window.App.UI = window.App.UI || {};
         alert(result.error);
         return;
       }
-      lastPreview = { date: selectedDate, meals: result.meals, warnings: result.warnings };
+      lastPreview = { date: selectedDate, meals: result.meals, daily: result.daily, warnings: result.warnings };
       render();
       rerenderOthers();
     });

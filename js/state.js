@@ -8,31 +8,77 @@ window.App = window.App || {};
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
+  // 洗衣籃輪替從這天開始；這天只有睡前抬下去，沒有昨天的籃子要抬上來
+  const LAUNDRY_START = "2026-08-02";
 
-  const DUTY_KEYS = ["dishwash", "foodwaste", "lunchbag", "wipe", "floor", "cleanup", "shopping"];
+  // 會累計次數、出現在公平性總覽的勤務。
+  // 抬便當上車/上樓不列入，因為人選跟包便當袋子完全相同，另外統計只會得到一模一樣的圖。
+  const DUTY_KEYS = ["dishwash", "foodwaste", "lunchbag", "wipe", "floor", "cleanup", "laundry", "shopping"];
 
   const MEAL_KEYS = ["breakfast", "lunch", "dinner"];
   const MEAL_LABELS = { breakfast: "早餐", lunch: "中餐", dinner: "晚餐" };
+
+  // 每一餐會列出來的勤務欄位（依顯示順序）
+  const MEAL_DUTY_ROWS = [
+    "dishwash",
+    "foodwaste",
+    "lunchbag",
+    "carryVehicle",
+    "carryUpstairs",
+    "wipe",
+    "floor",
+    "delivery",
+    "cleanup",
+  ];
+
+  // 一天只做一次、不分餐別的勤務
+  const DAILY_DUTY_ROWS = ["laundryUp", "laundryDown"];
 
   const DUTY_LABELS = {
     dishwash: "洗碗",
     foodwaste: "廚餘",
     lunchbag: "包便當袋子",
+    carryVehicle: "抬便當上車",
+    carryUpstairs: "抬便當上樓",
     wipe: "擦桌子",
     floor: "清地板收垃圾",
     delivery: "送便當",
     cleanup: "撤收",
+    laundry: "抬洗衣籃",
+    laundryUp: "抬洗衣籃上來（下午）",
+    laundryDown: "抬洗衣籃下去（睡前）",
     shopping: "採買",
+  };
+
+  // 個人分工那邊用短一點的說法，一行才塞得下
+  const DUTY_SHORT_LABELS = {
+    dishwash: "洗碗",
+    foodwaste: "廚餘",
+    lunchbag: "包便當",
+    lunchbagHelp: "包便當",
+    carryVehicle: "抬上車",
+    carryUpstairs: "抬上樓",
+    wipe: "擦桌子",
+    floor: "清地板",
+    delivery: "送便當",
+    cleanup: "撤收",
+    laundryUp: "抬洗衣籃上來",
+    laundryDown: "抬洗衣籃下去",
   };
 
   const DUTY_ICONS = {
     dishwash: "🍽️",
     foodwaste: "🗑️",
     lunchbag: "🍱",
+    carryVehicle: "🚚",
+    carryUpstairs: "🏢",
     wipe: "🧽",
     floor: "🧹",
     delivery: "🛵",
-    cleanup: "🧺",
+    cleanup: "📦",
+    laundry: "🧺",
+    laundryUp: "🧺",
+    laundryDown: "🧺",
     shopping: "🛒",
   };
 
@@ -117,6 +163,10 @@ window.App = window.App || {};
     return { groups: [], rotationOffset: 0, groupedMemberIds: [] };
   }
 
+  function defaultLaundryState() {
+    return { lastAssignedId: null, lastDown: [] };
+  }
+
   function defaultState() {
     const members = seedMembers();
     const dutyCounts = {};
@@ -137,6 +187,7 @@ window.App = window.App || {};
       dutyCounts,
       washState: defaultWashState(),
       cleanupGroups: defaultCleanupGroups(),
+      laundryState: defaultLaundryState(),
       schedules: {},
     };
   }
@@ -159,6 +210,7 @@ window.App = window.App || {};
     return Object.assign({}, base, parsed, {
       washState: Object.assign({}, base.washState, parsed.washState),
       cleanupGroups: Object.assign({}, base.cleanupGroups, parsed.cleanupGroups),
+      laundryState: Object.assign({}, base.laundryState, parsed.laundryState),
     });
   }
 
@@ -255,6 +307,7 @@ window.App = window.App || {};
     state.dutyCounts = dutyCounts;
     state.washState = defaultWashState();
     state.cleanupGroups = defaultCleanupGroups();
+    state.laundryState = defaultLaundryState();
     state.schedules = {};
   }
 
@@ -262,10 +315,14 @@ window.App = window.App || {};
     STORAGE_KEY,
     DUTY_PERIOD_START,
     DUTY_PERIOD_END,
+    LAUNDRY_START,
     DUTY_KEYS,
     MEAL_KEYS,
     MEAL_LABELS,
+    MEAL_DUTY_ROWS,
+    DAILY_DUTY_ROWS,
     DUTY_LABELS,
+    DUTY_SHORT_LABELS,
     DUTY_ICONS,
     emptyDutyCount,
     defaultState,
@@ -286,6 +343,7 @@ window.App = window.App || {};
     clearDerived,
     defaultWashState,
     defaultCleanupGroups,
+    defaultLaundryState,
     onSave,
     saveWithoutNotifying,
     migrate,

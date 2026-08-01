@@ -6,7 +6,6 @@ window.App.UI = window.App.UI || {};
   "use strict";
 
   const container = () => document.getElementById("tab-textschedule");
-  const DUTY_ROWS = ["dishwash", "foodwaste", "lunchbag", "wipe", "floor", "delivery", "cleanup"];
 
   function buildDisplayNameMap() {
     const state = window.App.State.get();
@@ -31,41 +30,56 @@ window.App.UI = window.App.UI || {};
     return `${Number(m)}/${Number(day)}（${weekday}）`;
   }
 
-  function buildMealText(dateStr, meals, displayNames) {
-    const lines = [];
-    lines.push(`${formatDateHeader(dateStr)} 勤務班表`);
-    window.App.State.MEAL_KEYS.forEach((mealKey) => {
-      const mealData = meals[mealKey];
-      lines.push("");
-      lines.push(`【${window.App.State.MEAL_LABELS[mealKey]}】`);
-      DUTY_ROWS.forEach((duty) => {
-        const ids = mealData[duty] || [];
-        const names = ids.length ? ids.map((id) => displayNames[id] || id).join("、") : "－";
-        lines.push(`${window.App.State.DUTY_LABELS[duty]}：${names}`);
-      });
-    });
-    return lines.join("\n");
-  }
-
-  function buildPersonText(dateStr, meals, displayNames) {
-    const state = window.App.State.get();
-    const activeMembers = window.App.State.activeMembersOn(dateStr).sort((a, b) => {
+  function activeSorted(dateStr) {
+    return window.App.State.activeMembersOn(dateStr).sort((a, b) => {
       if (a.cohort !== b.cohort) return a.cohort.localeCompare(b.cohort);
       return a.seq - b.seq;
     });
+  }
 
+  function buildMealText(dateStr, schedule, displayNames) {
+    const S = window.App.State;
+    const nameList = (ids) => (ids && ids.length ? ids.map((id) => displayNames[id] || id).join("、") : "－");
+    const active = activeSorted(dateStr);
+
+    const lines = [];
+    lines.push(`${formatDateHeader(dateStr)} 勤務班表`);
+
+    S.MEAL_KEYS.forEach((mealKey) => {
+      const mealData = schedule.meals[mealKey];
+      lines.push("");
+      lines.push(`【${S.MEAL_LABELS[mealKey]}】`);
+      S.MEAL_DUTY_ROWS.forEach((duty) => {
+        lines.push(`${S.DUTY_LABELS[duty]}：${nameList(mealData[duty])}`);
+      });
+      const helpers = window.App.DutyView.lunchbagHelpers(mealData, active);
+      lines.push(`一起幫忙包便當：${nameList(helpers)}`);
+    });
+
+    const daily = schedule.daily || {};
+    if ((daily.laundryUp || []).length || (daily.laundryDown || []).length) {
+      lines.push("");
+      lines.push("【全日】");
+      S.DAILY_DUTY_ROWS.forEach((duty) => {
+        lines.push(`${S.DUTY_LABELS[duty]}：${nameList(daily[duty])}`);
+      });
+    }
+
+    return lines.join("\n");
+  }
+
+  function buildPersonText(dateStr, schedule, displayNames) {
+    const S = window.App.State;
     const lines = [];
     lines.push(`${formatDateHeader(dateStr)} 個人勤務總覽`);
 
-    activeMembers.forEach((m) => {
-      const parts = window.App.State.MEAL_KEYS.map((mealKey) => {
-        const mealData = meals[mealKey];
-        const duties = DUTY_ROWS.filter((duty) => (mealData[duty] || []).includes(m.id)).map(
-          (duty) => window.App.State.DUTY_LABELS[duty]
-        );
-        const dutyText = duties.length ? duties.join("／") : "休息";
-        return `${window.App.State.MEAL_LABELS[mealKey]} ${dutyText}`;
+    activeSorted(dateStr).forEach((m) => {
+      const parts = S.MEAL_KEYS.map((mealKey) => {
+        const labels = window.App.DutyView.mealDutyLabels(schedule.meals[mealKey], m.id);
+        return `${S.MEAL_LABELS[mealKey]} ${labels.length ? labels.join("／") : "休息"}`;
       });
+      const dailyLabels = window.App.DutyView.dailyDutyLabels(schedule.daily, m.id);
+      if (dailyLabels.length) parts.push(dailyLabels.join("／"));
       lines.push(`[${m.cohort}] ${displayNames[m.id]}：${parts.join("　")}`);
     });
 
@@ -96,8 +110,8 @@ window.App.UI = window.App.UI || {};
     }
 
     const displayNames = buildDisplayNameMap();
-    const mealText = buildMealText(date, schedule.meals, displayNames);
-    const personText = buildPersonText(date, schedule.meals, displayNames);
+    const mealText = buildMealText(date, schedule, displayNames);
+    const personText = buildPersonText(date, schedule, displayNames);
 
     container().innerHTML = `
       ${!committed ? `<div class="hint">👀 目前顯示的是尚未確定紀錄的預覽內容。</div>` : ""}

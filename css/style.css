@@ -382,8 +382,12 @@ th {
   transition: opacity 0.12s ease;
 }
 
+.slice-track {
+  fill: #f5efe6;
+}
+
 .pie:hover .slice {
-  opacity: 0.68;
+  opacity: 0.6;
 }
 
 .pie .slice:hover {

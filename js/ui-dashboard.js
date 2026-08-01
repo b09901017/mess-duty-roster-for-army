@@ -14,7 +14,7 @@ window.App.UI = window.App.UI || {};
   "use strict";
 
   const container = () => document.getElementById("tab-dashboard");
-  const DUTY_KEYS = ["dishwash", "foodwaste", "lunchbag", "wipe", "floor", "cleanup", "shopping"];
+  const DUTY_KEYS = window.App.State.DUTY_KEYS;
 
   // diverging：做最少 → 剛好 → 做最多
   const BUCKETS = [
@@ -36,7 +36,8 @@ window.App.UI = window.App.UI || {};
    */
   function eligibleFor(dutyKey, members) {
     if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
-    if (dutyKey === "cleanup" || dutyKey === "shopping") return members;
+    // 撤收、洗衣籃、採買全員都要輪，包含固定送便當的兩位
+    if (dutyKey === "cleanup" || dutyKey === "laundry" || dutyKey === "shopping") return members;
     return members.filter((m) => m.fixedRole !== "delivery");
   }
 
@@ -62,19 +63,20 @@ window.App.UI = window.App.UI || {};
     return [CENTER + radius * Math.cos(rad), CENTER + radius * Math.sin(rad)];
   }
 
-  function arcPath(startDeg, endDeg) {
+  function arcPath(startDeg, endDeg, radius) {
+    const r = radius == null ? RADIUS : radius;
     const sweep = endDeg - startDeg;
-    if (sweep <= 0) return "";
+    if (sweep <= 0 || r <= 0) return "";
     // 整圈的情況 path 畫不出來，用兩段半圓
     if (sweep >= 359.999) {
-      const [x0, y0] = polar(0, RADIUS);
-      const [x1, y1] = polar(180, RADIUS);
-      return `M ${x0} ${y0} A ${RADIUS} ${RADIUS} 0 1 1 ${x1} ${y1} A ${RADIUS} ${RADIUS} 0 1 1 ${x0} ${y0} Z`;
+      const [x0, y0] = polar(0, r);
+      const [x1, y1] = polar(180, r);
+      return `M ${x0} ${y0} A ${r} ${r} 0 1 1 ${x1} ${y1} A ${r} ${r} 0 1 1 ${x0} ${y0} Z`;
     }
-    const [sx, sy] = polar(startDeg, RADIUS);
-    const [ex, ey] = polar(endDeg, RADIUS);
+    const [sx, sy] = polar(startDeg, r);
+    const [ex, ey] = polar(endDeg, r);
     const largeArc = sweep > 180 ? 1 : 0;
-    return `M ${CENTER} ${CENTER} L ${sx} ${sy} A ${RADIUS} ${RADIUS} 0 ${largeArc} 1 ${ex} ${ey} Z`;
+    return `M ${CENTER} ${CENTER} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey} Z`;
   }
 
   function escapeHtml(str) {
@@ -98,25 +100,24 @@ window.App.UI = window.App.UI || {};
     const band = fairBand(total, eligible.length);
     const mean = total / eligible.length;
 
-    // 扇形順序固定用名冊順序（不依次數排名），這樣不同勤務之間位置一致、比較好對照
-    const ordered = eligible.map((m) => ({ m, count: countOf(m) })).filter((r) => r.count > 0);
+    // 每個人固定一格（角度都一樣），格子的半徑代表次數，面積正比於次數。
+    // 用等角度而不是「照比例切派」，是因為次數 0 的人在比例派裡角度是 0、根本畫不出來，
+    // 這樣還沒輪到的人也看得見自己那一格。順序固定用名冊順序，不同勤務之間才好對照。
+    const rows = eligible.map((m) => ({ m, count: countOf(m) }));
+    const maxCount = Math.max(...rows.map((r) => r.count));
+    const sweep = 360 / rows.length;
+    const gap = rows.length > 1 ? Math.min(GAP_DEG, sweep * 0.18) : 0;
 
-    const maxCount = Math.max(...ordered.map((r) => r.count));
-    const minCount = Math.min(...ordered.map((r) => r.count));
-
-    let cursor = 0;
-    const slices = ordered.map((r) => {
-      const sweep = (r.count / total) * 360;
-      const bucket = bucketFor(r.count, band);
-      const gap = ordered.length > 1 ? Math.min(GAP_DEG, sweep * 0.25) : 0;
-      const start = cursor;
-      const end = cursor + sweep;
-      cursor = end;
-      const pct = ((r.count / total) * 100).toFixed(1);
+    const slices = rows.map((r, i) => {
+      const start = i * sweep;
+      const end = start + sweep;
+      // 面積正比於次數 → 半徑取平方根
+      const radius = maxCount > 0 ? RADIUS * Math.sqrt(r.count / maxCount) : 0;
+      const pct = total ? ((r.count / total) * 100).toFixed(1) : "0.0";
       return {
-        path: arcPath(start + gap / 2, end - gap / 2),
-        midDeg: (start + end) / 2,
-        bucket,
+        trackPath: arcPath(start + gap / 2, end - gap / 2, RADIUS),
+        path: arcPath(start + gap / 2, end - gap / 2, radius),
+        bucket: bucketFor(r.count, band),
         name: r.m.name,
         cohort: r.m.cohort,
         count: r.count,
@@ -124,9 +125,7 @@ window.App.UI = window.App.UI || {};
       };
     });
 
-    // 18個扇形沒辦法每個都標名字（會疊在一起），改成只在圖下方點名最多與最少的人，
-    // 完整數字由旁邊的表格與滑鼠提示提供。
-    const topNames = ordered.filter((r) => r.count === maxCount).map((r) => r.m.name);
+    const topNames = rows.filter((r) => r.count === maxCount).map((r) => r.m.name);
     const zeroCount = eligible.filter((m) => countOf(m) === 0).length;
     const overNames = eligible.filter((m) => countOf(m) > band.hi).map((m) => m.name);
     const underNames = eligible.filter((m) => countOf(m) < band.lo).map((m) => m.name);
@@ -168,12 +167,15 @@ window.App.UI = window.App.UI || {};
         <div class="chart-and-table">
           <svg class="pie" viewBox="0 0 ${CENTER * 2} ${CENTER * 2}" role="img"
                aria-label="${window.App.State.DUTY_LABELS[dutyKey]}各人次數佔比">
+            ${slices.map((s) => `<path d="${s.trackPath}" class="slice-track"/>`).join("")}
             ${slices
               .map(
                 (s) =>
-                  `<path d="${s.path}" fill="${s.bucket.color}" class="slice"><title>${escapeHtml(s.name)}（${
-                    s.cohort
-                  }梯）${s.count} 次・${s.pct}%・${s.bucket.label}</title></path>`
+                  `<g class="slice"><path d="${s.trackPath}" fill="transparent"/>${
+                    s.path ? `<path d="${s.path}" fill="${s.bucket.color}"/>` : ""
+                  }<title>${escapeHtml(s.name)}（${s.cohort}梯）${s.count} 次・佔 ${s.pct}%・${
+                    s.bucket.label
+                  }</title></g>`
               )
               .join("")}
           </svg>
@@ -191,7 +193,15 @@ window.App.UI = window.App.UI || {};
     return `
       <div class="card">
         <h2>怎麼看這些圖</h2>
-        <p class="hint">扇形越大＝這個人做這項勤務的次數越多。顏色是拿他的次數跟<strong>公平範圍</strong>比：勤務還沒輪完整圈時（例如擦桌子一天只有3個名額），每人拿 0 次或 1 次都算公平，所以都是灰色；只有真的超出公平範圍才會變橘色或藍色。<strong>整張圖越接近灰色＝分配越平均</strong>。完整數字看旁邊的表格，滑鼠移到扇形上也會顯示。固定送便當的兩位不會被排到洗碗與其他雜項勤務，所以那幾張圖不會把他們算進去。</p>
+        <p class="hint">
+          <strong>每個人固定佔一格</strong>（角度都一樣，依名冊順序排），格子往外<strong>伸得越長＝做越多次</strong>；
+          淺色底代表那一格目前是空的，也就是這個人還沒輪到。
+          顏色是拿他的次數跟<strong>公平範圍</strong>比：勤務還沒輪完整圈時（例如擦桌子一天只有3個名額），
+          每人拿 0 次或 1 次都算公平，所以都是灰色；真的超出公平範圍才會變橘色或藍色。
+          <strong>整張圖越接近灰色、長度越整齊＝分配越平均</strong>。
+          完整數字看旁邊的表格，滑鼠移到格子上也會顯示。
+          固定送便當的兩位不會被排到洗碗與其他雜項勤務，那幾張圖不會把他們算進去。
+        </p>
         <div class="legend-row">
           ${BUCKETS.map(
             (b) => `<span class="legend-item"><span class="swatch" style="background:${b.color}"></span>${b.label}</span>`

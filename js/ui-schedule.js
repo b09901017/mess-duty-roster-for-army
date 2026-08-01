@@ -1,4 +1,4 @@
-/* 產生班表頁面 */
+/* 產生班表頁面：先預覽，按下確定才會真正紀錄 */
 window.App = window.App || {};
 window.App.UI = window.App.UI || {};
 
@@ -6,7 +6,8 @@ window.App.UI = window.App.UI || {};
   "use strict";
 
   const container = () => document.getElementById("tab-schedule");
-  let selectedDate = new Date().toISOString().slice(0, 10);
+  let selectedDate = window.App.State.DUTY_PERIOD_START;
+  let lastPreview = null;
 
   function memberLabel(id) {
     const m = window.App.State.memberById(id);
@@ -37,30 +38,43 @@ window.App.UI = window.App.UI || {};
 
   function render() {
     const state = window.App.State.get();
-    const schedule = state.schedules[selectedDate];
+    const committed = !!state.schedules[selectedDate];
 
     container().innerHTML = `
       <div class="card">
         <h2>選擇日期</h2>
+        <p class="hint">這次勤務只安排 ${window.App.State.DUTY_PERIOD_START} ～ ${window.App.State.DUTY_PERIOD_END}。</p>
         <div class="row">
-          <input type="date" id="schedule-date" value="${selectedDate}">
-          <button type="button" class="primary" id="generate-btn">${schedule ? "查看班表" : "產生班表"}</button>
-          ${schedule ? `<button type="button" class="danger" id="regenerate-btn">重新產生（會影響公平次數，請小心使用）</button>` : ""}
+          <input type="date" id="schedule-date" value="${selectedDate}"
+            min="${window.App.State.DUTY_PERIOD_START}" max="${window.App.State.DUTY_PERIOD_END}">
+          <button type="button" class="primary" id="preview-btn">🔍 預覽（不會紀錄）</button>
+          ${
+            committed
+              ? `<span class="chip chip-inactive">✅ 這天已經確定紀錄過了</span>
+                 <button type="button" class="danger" id="regenerate-btn">重新產生並覆蓋（會影響公平次數，請小心使用）</button>`
+              : `<button type="button" class="primary" id="confirm-btn" ${lastPreview ? "" : "disabled"}>✅ 確定紀錄</button>`
+          }
         </div>
       </div>
       <div id="schedule-result"></div>
     `;
 
     const resultEl = container().querySelector("#schedule-result");
-    if (schedule) {
-      renderResult(resultEl, schedule);
+    if (committed) {
+      renderResult(resultEl, state.schedules[selectedDate], true);
+      lastPreview = null;
+    } else if (lastPreview && lastPreview.date === selectedDate) {
+      renderResult(resultEl, lastPreview, false);
+    } else {
+      resultEl.innerHTML = `<div class="empty-state">按上面「預覽」看看這天的班表（不會被記錄），確認沒問題後再按「確定紀錄」。</div>`;
     }
 
     bindEvents();
   }
 
-  function renderResult(resultEl, schedule) {
+  function renderResult(resultEl, schedule, committed) {
     resultEl.innerHTML = `
+      ${!committed ? `<div class="hint">👀 這是預覽結果，尚未紀錄，可以重複按「預覽」測試，不會影響公平次數。</div>` : ""}
       ${schedule.warnings && schedule.warnings.length
         ? `<div class="warning-box">${schedule.warnings.map((w) => "⚠️ " + w).join("<br>")}</div>`
         : ""
@@ -76,25 +90,45 @@ window.App.UI = window.App.UI || {};
     const dateInput = root.querySelector("#schedule-date");
     dateInput.addEventListener("change", () => {
       selectedDate = dateInput.value;
+      lastPreview = null;
       render();
     });
 
-    const generateBtn = root.querySelector("#generate-btn");
-    generateBtn.addEventListener("click", () => {
-      const result = window.App.ScheduleEngine.generateDay(selectedDate);
+    const previewBtn = root.querySelector("#preview-btn");
+    previewBtn.addEventListener("click", () => {
+      const result = window.App.ScheduleEngine.previewDay(selectedDate);
       if (!result.ok) {
         alert(result.error);
         return;
       }
+      lastPreview = { date: selectedDate, meals: result.meals, warnings: result.warnings };
       render();
       rerenderOthers();
     });
 
+    const confirmBtn = root.querySelector("#confirm-btn");
+    if (confirmBtn) {
+      confirmBtn.addEventListener("click", () => {
+        if (!lastPreview || lastPreview.date !== selectedDate) {
+          alert("請先按「預覽」看過這天的班表再確定紀錄。");
+          return;
+        }
+        const result = window.App.ScheduleEngine.commitDay(selectedDate);
+        if (!result.ok) {
+          alert(result.error);
+          return;
+        }
+        lastPreview = null;
+        render();
+        rerenderOthers();
+      });
+    }
+
     const regenerateBtn = root.querySelector("#regenerate-btn");
     if (regenerateBtn) {
       regenerateBtn.addEventListener("click", () => {
-        if (!confirm("重新產生會重新計算輪值次數與洗碗指標，確定要覆蓋這一天的班表嗎？")) return;
-        const result = window.App.ScheduleEngine.generateDay(selectedDate, { force: true });
+        if (!confirm("重新產生會覆蓋這一天已確定的班表，並可能讓洗碗/撤收輪值往前推進，確定要繼續嗎？")) return;
+        const result = window.App.ScheduleEngine.commitDay(selectedDate, { force: true });
         if (!result.ok) {
           alert(result.error);
           return;
@@ -106,7 +140,7 @@ window.App.UI = window.App.UI || {};
   }
 
   function rerenderOthers() {
-    if (window.App.UI.ShareCard) window.App.UI.ShareCard.render();
+    if (window.App.UI.TextSchedule) window.App.UI.TextSchedule.render();
     if (window.App.UI.Shopping) window.App.UI.Shopping.render();
     if (window.App.UI.Dashboard) window.App.UI.Dashboard.render();
   }
@@ -115,5 +149,9 @@ window.App.UI = window.App.UI || {};
     return selectedDate;
   }
 
-  window.App.UI.Schedule = { render, getSelectedDate, memberLabel };
+  function getLastPreview() {
+    return lastPreview && lastPreview.date === selectedDate ? lastPreview : null;
+  }
+
+  window.App.UI.Schedule = { render, getSelectedDate, getLastPreview, memberLabel };
 })();

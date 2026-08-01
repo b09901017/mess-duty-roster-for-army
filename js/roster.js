@@ -1,4 +1,4 @@
-/* 人員名冊管理：新增/編輯/退伍、固定送便當人力異動 */
+/* 人員名冊管理：新增/編輯/退伍日期、固定送便當人力異動 */
 window.App = window.App || {};
 
 (function () {
@@ -20,7 +20,6 @@ window.App = window.App || {};
       cohort,
       seq,
       dischargeDate: null,
-      active: true,
       fixedRole: null,
     });
     state.dutyCounts[id] = window.App.State.emptyDutyCount();
@@ -37,25 +36,19 @@ window.App = window.App || {};
   }
 
   /**
-   * @returns {{ deliveryVacancy: boolean }} - deliveryVacancy=true 代表退伍者是固定送便當，需要手動指定新人
+   * 設定退伍日期（傳入 null 代表恢復現役）
+   * @returns {{ deliveryVacancy: boolean }} - deliveryVacancy=true 代表這位是固定送便當，設定退伍日後會出缺
    */
-  function dischargeMember(id, dischargeDate) {
+  function setDischargeDate(id, dischargeDate) {
     const state = window.App.State.get();
     const member = state.members.find((m) => m.id === id);
     if (!member) return { deliveryVacancy: false };
 
-    member.active = false;
-    member.dischargeDate = dischargeDate || new Date().toISOString().slice(0, 10);
-    const wasDelivery = member.fixedRole === "delivery";
-    if (wasDelivery) {
-      member.fixedRole = null;
-    }
+    member.dischargeDate = dischargeDate || null;
     window.App.State.save();
-    return { deliveryVacancy: wasDelivery };
-  }
 
-  function reactivateMember(id) {
-    updateMember(id, { active: true, dischargeDate: null });
+    const willVacate = member.fixedRole === "delivery" && !!member.dischargeDate;
+    return { deliveryVacancy: willVacate };
   }
 
   function getDeliveryMembers() {
@@ -81,8 +74,7 @@ window.App = window.App || {};
   window.App.Roster = {
     addMember,
     updateMember,
-    dischargeMember,
-    reactivateMember,
+    setDischargeDate,
     getDeliveryMembers,
     setDeliveryMembers,
   };

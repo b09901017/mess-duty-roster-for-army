@@ -97,7 +97,7 @@ window.App.UI = window.App.UI || {};
       render();
       root.querySelector("#shopping-feedback").innerHTML = html;
       if (window.App.UI.Schedule) window.App.UI.Schedule.render();
-      if (window.App.UI.ShareCard) window.App.UI.ShareCard.render();
+      if (window.App.UI.TextSchedule) window.App.UI.TextSchedule.render();
       if (window.App.UI.Dashboard) window.App.UI.Dashboard.render();
     });
   }

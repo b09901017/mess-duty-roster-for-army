@@ -4,7 +4,10 @@ window.App = window.App || {};
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "mess-duty-roster-v2";
+  const STORAGE_KEY = "mess-duty-roster-v3";
+
+  const DUTY_PERIOD_START = "2026-08-01";
+  const DUTY_PERIOD_END = "2026-08-14";
 
   const DUTY_KEYS = ["dishwash", "foodwaste", "lunchbag", "wipe", "floor", "cleanup", "shopping"];
 
@@ -39,30 +42,57 @@ window.App = window.App || {};
     return c;
   }
 
+  function todayStr() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
   function seedMembers() {
+    const r261 = [
+      ["李愷宸", null],
+      ["江偉綸", "2026-08-04"],
+      ["陳柏翰", "2026-08-14"],
+      ["鄧旭辰", "2026-08-08"],
+      ["廖翊滕", "2026-08-10"],
+      ["陳俊穎", "2026-08-13"],
+      ["林柏宇", "2026-08-14"],
+      ["林崇浩", "2026-08-13"],
+    ];
+    const r263 = [
+      "陳東霖",
+      "呂胤玄",
+      "林柏翰",
+      "曹月輝",
+      "黃聖為",
+      "李易宸",
+      "顏允彣",
+      "呂承鴻",
+      "盧明煬",
+      "田權楨",
+    ];
+
     const members = [];
-    for (let i = 1; i <= 8; i++) {
+    r261.forEach(([name, dischargeDate], idx) => {
+      const seq = idx + 1;
       members.push({
-        id: `261-${i}`,
-        name: `261-${i}號`,
+        id: `261-${seq}`,
+        name,
         cohort: "261",
-        seq: i,
-        dischargeDate: null,
-        active: true,
-        fixedRole: i === 7 || i === 8 ? "delivery" : null,
+        seq,
+        dischargeDate: dischargeDate,
+        fixedRole: seq === 7 || seq === 8 ? "delivery" : null,
       });
-    }
-    for (let i = 1; i <= 10; i++) {
+    });
+    r263.forEach((name, idx) => {
+      const seq = idx + 1;
       members.push({
-        id: `263-${i}`,
-        name: `263-${i}號`,
+        id: `263-${seq}`,
+        name,
         cohort: "263",
-        seq: i,
+        seq,
         dischargeDate: null,
-        active: true,
         fixedRole: null,
       });
-    }
+    });
     return members;
   }
 
@@ -79,24 +109,25 @@ window.App = window.App || {};
     ];
   }
 
+  function defaultWashState() {
+    return { primaryPointer: { 261: 0, 263: 0 }, nextPrimaryCohort: "261" };
+  }
+
+  function defaultCleanupGroups() {
+    return { groups: [], rotationOffset: 0, groupedMemberIds: [] };
+  }
+
   function defaultState() {
     const members = seedMembers();
     const dutyCounts = {};
     members.forEach((m) => (dutyCounts[m.id] = emptyDutyCount()));
 
     return {
-      version: 2,
+      version: 3,
       members,
       dutyCounts,
-      washState: {
-        primaryPointer: { 261: 0, 263: 0 },
-        nextPrimaryCohort: "261",
-      },
-      cleanupGroups: {
-        groups: [],
-        rotationOffset: 0,
-        groupedMemberIds: [],
-      },
+      washState: defaultWashState(),
+      cleanupGroups: defaultCleanupGroups(),
       dutySizeTable: defaultDutySizeTable(),
       schedules: {},
       shoppingLog: [],
@@ -139,14 +170,27 @@ window.App = window.App || {};
     save();
   }
 
+  /** 該員在指定日期是否仍在役（退伍日當天起視為不在役） */
+  function isActiveOn(member, dateStr) {
+    return !member.dischargeDate || dateStr < member.dischargeDate;
+  }
+
+  function activeMembersOn(dateStr) {
+    return state.members.filter((m) => isActiveOn(m, dateStr));
+  }
+
+  function activeMembersByCohortOn(cohort, dateStr) {
+    return activeMembersOn(dateStr)
+      .filter((m) => m.cohort === cohort)
+      .sort((a, b) => a.seq - b.seq);
+  }
+
   function activeMembers() {
-    return state.members.filter((m) => m.active);
+    return activeMembersOn(todayStr());
   }
 
   function activeMembersByCohort(cohort) {
-    return activeMembers()
-      .filter((m) => m.cohort === cohort)
-      .sort((a, b) => a.seq - b.seq);
+    return activeMembersByCohortOn(cohort, todayStr());
   }
 
   function memberById(id) {
@@ -162,8 +206,22 @@ window.App = window.App || {};
     replaceState(migrate(parsed));
   }
 
+  /** 重置所有勤務紀錄（次數、班表、洗碗指標、撤收分組、採買紀錄），保留人員名單 */
+  function resetRecords() {
+    const dutyCounts = {};
+    state.members.forEach((m) => (dutyCounts[m.id] = emptyDutyCount()));
+    state.dutyCounts = dutyCounts;
+    state.washState = defaultWashState();
+    state.cleanupGroups = defaultCleanupGroups();
+    state.schedules = {};
+    state.shoppingLog = [];
+    save();
+  }
+
   window.App.State = {
     STORAGE_KEY,
+    DUTY_PERIOD_START,
+    DUTY_PERIOD_END,
     DUTY_KEYS,
     MEAL_KEYS,
     MEAL_LABELS,
@@ -172,13 +230,18 @@ window.App = window.App || {};
     emptyDutyCount,
     defaultState,
     defaultDutySizeTable,
+    todayStr,
     get: getState,
     save,
     replaceState,
+    isActiveOn,
     activeMembers,
+    activeMembersOn,
     activeMembersByCohort,
+    activeMembersByCohortOn,
     memberById,
     exportJson,
     importJson,
+    resetRecords,
   };
 })();

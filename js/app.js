@@ -2,13 +2,13 @@
 (function () {
   "use strict";
 
-  const TABS = ["roster", "dutyconfig", "schedule", "sharecard", "shopping", "dashboard"];
+  const TABS = ["roster", "dutyconfig", "schedule", "textschedule", "shopping", "dashboard"];
 
   function renderAll() {
     window.App.UI.Roster.render();
     window.App.UI.DutyConfig.render();
     window.App.UI.Schedule.render();
-    window.App.UI.ShareCard.render();
+    window.App.UI.TextSchedule.render();
     window.App.UI.Shopping.render();
     window.App.UI.Dashboard.render();
   }

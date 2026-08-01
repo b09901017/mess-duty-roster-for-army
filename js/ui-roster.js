@@ -7,31 +7,31 @@ window.App.UI = window.App.UI || {};
 
   const container = () => document.getElementById("tab-roster");
 
-  function cohortChip(cohort, active) {
-    const cls = active ? `chip chip-${cohort}` : "chip chip-inactive";
-    return `<span class="${cls}">${cohort}梯</span>`;
+  function cohortChip(cohort) {
+    return `<span class="chip chip-${cohort}">${cohort}梯</span>`;
   }
 
-  function memberRow(m) {
-    const statusText = m.active ? "現役" : `已退伍${m.dischargeDate ? " (" + m.dischargeDate + ")" : ""}`;
+  function memberRow(m, today) {
+    const isActive = window.App.State.isActiveOn(m, today);
+    const statusChip = isActive
+      ? `<span class="chip chip-${m.cohort}">現役</span>`
+      : `<span class="chip chip-inactive">已退伍</span>`;
     const deliveryBadge = m.fixedRole === "delivery" ? ' <span class="chip chip-inactive">🛵固定送便當</span>' : "";
     return `
       <tr data-id="${m.id}">
-        <td>${cohortChip(m.cohort, m.active)} ${m.seq}號</td>
-        <td>
+        <td data-label="序號">${cohortChip(m.cohort)} ${m.seq}號</td>
+        <td data-label="姓名">
           <input type="text" class="member-name-input" value="${escapeAttr(m.name)}" data-id="${m.id}">
           ${deliveryBadge}
         </td>
-        <td>${statusText}</td>
-        <td class="row">
-          ${
-            m.active
-              ? `<button type="button" class="discharge-btn" data-id="${m.id}">退伍</button>
-                 <button type="button" class="set-delivery-btn" data-id="${m.id}">${
-                  m.fixedRole === "delivery" ? "取消送便當" : "設為送便當"
-                }</button>`
-              : `<button type="button" class="reactivate-btn" data-id="${m.id}">恢復現役</button>`
-          }
+        <td data-label="退伍日期">
+          <input type="date" class="discharge-date-input" data-id="${m.id}" value="${m.dischargeDate || ""}">
+        </td>
+        <td data-label="狀態">${statusChip}</td>
+        <td data-label="操作">
+          <button type="button" class="set-delivery-btn" data-id="${m.id}">${
+            m.fixedRole === "delivery" ? "取消送便當" : "設為送便當"
+          }</button>
         </td>
       </tr>`;
   }
@@ -42,9 +42,12 @@ window.App.UI = window.App.UI || {};
 
   function render() {
     const state = window.App.State.get();
+    const today = window.App.State.todayStr();
     const members261 = state.members.filter((m) => m.cohort === "261").sort((a, b) => a.seq - b.seq);
     const members263 = state.members.filter((m) => m.cohort === "263").sort((a, b) => a.seq - b.seq);
     const deliveryMembers = window.App.Roster.getDeliveryMembers();
+    const activeCount261 = members261.filter((m) => window.App.State.isActiveOn(m, today)).length;
+    const activeCount263 = members263.filter((m) => window.App.State.isActiveOn(m, today)).length;
 
     container().innerHTML = `
       ${
@@ -66,19 +69,30 @@ window.App.UI = window.App.UI || {};
       </div>
 
       <div class="card">
-        <h2>261 梯 (${members261.filter((m) => m.active).length} 現役 / ${members261.length} 總數)</h2>
-        <table>
-          <thead><tr><th>序號</th><th>姓名</th><th>狀態</th><th>操作</th></tr></thead>
-          <tbody>${members261.map(memberRow).join("") || emptyRow()}</tbody>
+        <h2>261 梯 (${activeCount261} 現役 / ${members261.length} 總數)</h2>
+        <p class="hint">退伍日期留空＝現役，填日期後從當天起自動不排勤務（可先預填未來日期，方便提前排好整個梯期的班表）。</p>
+        <div class="table-scroll">
+        <table class="responsive-table">
+          <thead><tr><th>序號</th><th>姓名</th><th>退伍日期</th><th>狀態</th><th>操作</th></tr></thead>
+          <tbody>${members261.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
+        </div>
       </div>
 
       <div class="card">
-        <h2>263 梯 (${members263.filter((m) => m.active).length} 現役 / ${members263.length} 總數)</h2>
-        <table>
-          <thead><tr><th>序號</th><th>姓名</th><th>狀態</th><th>操作</th></tr></thead>
-          <tbody>${members263.map(memberRow).join("") || emptyRow()}</tbody>
+        <h2>263 梯 (${activeCount263} 現役 / ${members263.length} 總數)</h2>
+        <div class="table-scroll">
+        <table class="responsive-table">
+          <thead><tr><th>序號</th><th>姓名</th><th>退伍日期</th><th>狀態</th><th>操作</th></tr></thead>
+          <tbody>${members263.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>資料重置</h2>
+        <p class="hint">如果之前只是測試，想把所有勤務次數、已產生的班表、洗碗輪值指標、撤收分組、採買紀錄都歸零重來（人員名單會保留），可以按這個按鈕。</p>
+        <button type="button" class="danger" id="reset-records-btn">🔄 重置所有勤務紀錄</button>
       </div>
     `;
 
@@ -86,7 +100,7 @@ window.App.UI = window.App.UI || {};
   }
 
   function emptyRow() {
-    return `<tr><td colspan="4" class="empty-state">尚無人員</td></tr>`;
+    return `<tr><td colspan="5" class="empty-state">尚無人員</td></tr>`;
   }
 
   function bindEvents() {
@@ -106,25 +120,16 @@ window.App.UI = window.App.UI || {};
     root.querySelectorAll(".member-name-input").forEach((input) => {
       input.addEventListener("change", () => {
         window.App.Roster.updateMember(input.dataset.id, { name: input.value.trim() });
-      });
-    });
-
-    root.querySelectorAll(".discharge-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = btn.dataset.id;
-        const dateStr = prompt("退伍日期 (YYYY-MM-DD)，留空則用今天：", "");
-        const result = window.App.Roster.dischargeMember(id, dateStr || undefined);
-        if (result.deliveryVacancy) {
-          alert("⚠️ 這位是固定送便當人員，人力已出缺！請在名冊中選2位新的「設為送便當」。");
-        }
-        render();
         rerenderOthers();
       });
     });
 
-    root.querySelectorAll(".reactivate-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        window.App.Roster.reactivateMember(btn.dataset.id);
+    root.querySelectorAll(".discharge-date-input").forEach((input) => {
+      input.addEventListener("change", () => {
+        const result = window.App.Roster.setDischargeDate(input.dataset.id, input.value || null);
+        if (result.deliveryVacancy) {
+          alert("⚠️ 這位是固定送便當人員，退伍日之後送便當人力會出缺！請盡快在名冊中選2位新的「設為送便當」。");
+        }
         render();
         rerenderOthers();
       });
@@ -149,11 +154,28 @@ window.App.UI = window.App.UI || {};
         rerenderOthers();
       });
     });
+
+    const resetBtn = root.querySelector("#reset-records-btn");
+    if (resetBtn) {
+      resetBtn.addEventListener("click", () => {
+        if (!confirm("確定要重置所有勤務次數、班表、輪值指標與採買紀錄嗎？人員名單不會被刪除，這個動作無法復原。")) return;
+        window.App.State.resetRecords();
+        render();
+        rerenderAll();
+      });
+    }
   }
 
   function rerenderOthers() {
     if (window.App.UI.DutyConfig) window.App.UI.DutyConfig.render();
     if (window.App.UI.Dashboard) window.App.UI.Dashboard.render();
+  }
+
+  function rerenderAll() {
+    rerenderOthers();
+    if (window.App.UI.Schedule) window.App.UI.Schedule.render();
+    if (window.App.UI.TextSchedule) window.App.UI.TextSchedule.render();
+    if (window.App.UI.Shopping) window.App.UI.Shopping.render();
   }
 
   window.App.UI.Roster = { render };

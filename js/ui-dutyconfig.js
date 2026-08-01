@@ -31,6 +31,7 @@ window.App.UI = window.App.UI || {};
             ? `<div class="hint">目前現有人數 ${activeCount} 人 → 套用「現有人數≥${matched.minActiveCount}」這一列的設定。</div>`
             : `<div class="warning-box">⚠️ 目前現有人數 ${activeCount} 人，沒有對應設定！請新增一列涵蓋這個人數，否則無法產生班表。</div>`
         }
+        <div class="table-scroll">
         <table>
           <thead><tr>${FIELDS.map((f) => `<th>${FIELD_LABELS[f]}</th>`).join("")}<th>操作</th></tr></thead>
           <tbody>
@@ -48,6 +49,7 @@ window.App.UI = window.App.UI || {};
               .join("")}
           </tbody>
         </table>
+        </div>
         <div class="row" style="margin-top:12px">
           <button type="button" class="primary" id="add-row-btn">新增一列</button>
         </div>

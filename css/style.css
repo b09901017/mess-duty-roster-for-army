@@ -193,6 +193,46 @@ th {
   background: #fdf3e9;
 }
 
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 手機寬度下，表格改成一列一張卡片，避免動作按鈕換行把整列撐得又高又空 */
+@media (max-width: 640px) {
+  table.responsive-table thead {
+    display: none;
+  }
+  table.responsive-table,
+  table.responsive-table tbody,
+  table.responsive-table tr,
+  table.responsive-table td {
+    display: block;
+    width: 100%;
+  }
+  table.responsive-table tr {
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  table.responsive-table td {
+    border: none;
+    border-bottom: 1px dashed var(--border);
+    padding: 8px 10px;
+  }
+  table.responsive-table td:last-child {
+    border-bottom: none;
+  }
+  table.responsive-table td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -291,57 +331,6 @@ th {
   text-align: right;
 }
 
-/* 分享卡 */
-.share-card {
-  background: linear-gradient(160deg, #fff8f0, #ffe9da);
-  border-radius: 24px;
-  padding: 24px;
-  box-shadow: var(--shadow);
-}
-
-.share-card .share-title {
-  text-align: center;
-  font-size: 1.4rem;
-  font-weight: 700;
-  margin-bottom: 4px;
-}
-
-.share-card .share-date {
-  text-align: center;
-  color: var(--muted);
-  margin-bottom: 16px;
-}
-
-.share-meal {
-  background: #fffdfb;
-  border-radius: 18px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-  border: 1px solid var(--border);
-}
-
-.share-meal h3 {
-  margin: 0 0 8px;
-  font-size: 1.1rem;
-}
-
-.share-duty {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  padding: 3px 0;
-  font-size: 0.92rem;
-}
-
-.share-duty .icon {
-  font-size: 1.1rem;
-}
-
-.share-duty .label {
-  min-width: 90px;
-  color: var(--muted);
-}
-
 /* 公平性總覽 */
 .bar-row {
   display: flex;
@@ -351,9 +340,22 @@ th {
 }
 
 .bar-name {
-  width: 110px;
-  font-size: 0.85rem;
+  width: 96px;
+  font-size: 0.82rem;
   flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 420px) {
+  .bar-row {
+    flex-wrap: wrap;
+  }
+  .bar-name {
+    width: 100%;
+    order: -1;
+  }
 }
 
 .bar-track {
@@ -367,6 +369,20 @@ th {
 .bar-fill {
   height: 100%;
   background: var(--accent);
+}
+
+.text-schedule-area {
+  width: 100%;
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fffdfb;
+  color: var(--ink);
+  resize: vertical;
+  white-space: pre-wrap;
 }
 
 .bar-value {

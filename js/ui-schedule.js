@@ -38,7 +38,7 @@ window.App.UI = window.App.UI || {};
 
   function render() {
     const state = window.App.State.get();
-    const committed = !!state.schedules[selectedDate];
+    const committed = state.committedDates.includes(selectedDate);
 
     container().innerHTML = `
       <div class="card">
@@ -51,7 +51,8 @@ window.App.UI = window.App.UI || {};
           ${
             committed
               ? `<span class="chip chip-inactive">✅ 這天已經確定紀錄過了</span>
-                 <button type="button" class="danger" id="regenerate-btn">重新產生並覆蓋（會影響公平次數，請小心使用）</button>`
+                 <button type="button" id="recommit-btn">重排這天</button>
+                 <button type="button" class="danger" id="uncommit-btn">取消這天的紀錄</button>`
               : `<button type="button" class="primary" id="confirm-btn" ${lastPreview ? "" : "disabled"}>✅ 確定紀錄</button>`
           }
         </div>
@@ -60,7 +61,7 @@ window.App.UI = window.App.UI || {};
     `;
 
     const resultEl = container().querySelector("#schedule-result");
-    if (committed) {
+    if (committed && state.schedules[selectedDate]) {
       renderResult(resultEl, state.schedules[selectedDate], true);
       lastPreview = null;
     } else if (lastPreview && lastPreview.date === selectedDate) {
@@ -74,9 +75,13 @@ window.App.UI = window.App.UI || {};
 
   function renderResult(resultEl, schedule, committed) {
     resultEl.innerHTML = `
-      ${!committed ? `<div class="hint">👀 這是預覽結果，尚未紀錄，可以重複按「預覽」測試，不會影響公平次數。</div>` : ""}
+      ${!committed ? `<div class="hint">👀 這是預覽結果，尚未紀錄，可以重複按「預覽」測試，不會影響公平次數。按下「確定紀錄」後看到的會跟這裡一模一樣。</div>` : ""}
       ${schedule.warnings && schedule.warnings.length
         ? `<div class="warning-box">${schedule.warnings.map((w) => "⚠️ " + w).join("<br>")}</div>`
+        : ""
+      }
+      ${schedule.shoppingNotes && schedule.shoppingNotes.length
+        ? `<div class="hint">🛒 ${schedule.shoppingNotes.join("<br>🛒 ")}</div>`
         : ""
       }
       <div class="meal-grid">
@@ -124,15 +129,25 @@ window.App.UI = window.App.UI || {};
       });
     }
 
-    const regenerateBtn = root.querySelector("#regenerate-btn");
-    if (regenerateBtn) {
-      regenerateBtn.addEventListener("click", () => {
-        if (!confirm("重新產生會覆蓋這一天已確定的班表，並可能讓洗碗/撤收輪值往前推進，確定要繼續嗎？")) return;
-        const result = window.App.ScheduleEngine.commitDay(selectedDate, { force: true });
+    const recommitBtn = root.querySelector("#recommit-btn");
+    if (recommitBtn) {
+      recommitBtn.addEventListener("click", () => {
+        const result = window.App.ScheduleEngine.commitDay(selectedDate);
         if (!result.ok) {
           alert(result.error);
           return;
         }
+        render();
+        rerenderOthers();
+      });
+    }
+
+    const uncommitBtn = root.querySelector("#uncommit-btn");
+    if (uncommitBtn) {
+      uncommitBtn.addEventListener("click", () => {
+        if (!confirm(`確定要取消 ${selectedDate} 的紀錄嗎？這天的採買登記也會一併移除。`)) return;
+        window.App.ScheduleEngine.uncommitDay(selectedDate);
+        lastPreview = null;
         render();
         rerenderOthers();
       });

@@ -4,7 +4,7 @@ window.App = window.App || {};
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "mess-duty-roster-v3";
+  const STORAGE_KEY = "mess-duty-roster-v4";
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
@@ -123,14 +123,21 @@ window.App = window.App || {};
     members.forEach((m) => (dutyCounts[m.id] = emptyDutyCount()));
 
     return {
-      version: 3,
+      version: 4,
       members,
+      dutySizeTable: defaultDutySizeTable(),
+
+      // ── 來源資料（真正被使用者決定的東西）────────────────────────────
+      // 已確定紀錄的日期，以及採買登記。整個系統的班表都是由這兩者「重播」推導出來的，
+      // 所以同一天不管重排幾次，只要名單與設定沒變，結果一定一樣。
+      committedDates: [],
+      shoppingLog: [],
+
+      // ── 推導出來的快取（由 ScheduleEngine.rebuildAll 重算，不要手動改）──
       dutyCounts,
       washState: defaultWashState(),
       cleanupGroups: defaultCleanupGroups(),
-      dutySizeTable: defaultDutySizeTable(),
       schedules: {},
-      shoppingLog: [],
     };
   }
 
@@ -208,14 +215,20 @@ window.App = window.App || {};
 
   /** 重置所有勤務紀錄（次數、班表、洗碗指標、撤收分組、採買紀錄），保留人員名單 */
   function resetRecords() {
+    state.committedDates = [];
+    state.shoppingLog = [];
+    clearDerived();
+    save();
+  }
+
+  /** 清掉所有推導出來的快取，回到「什麼都還沒排」的起點 */
+  function clearDerived() {
     const dutyCounts = {};
     state.members.forEach((m) => (dutyCounts[m.id] = emptyDutyCount()));
     state.dutyCounts = dutyCounts;
     state.washState = defaultWashState();
     state.cleanupGroups = defaultCleanupGroups();
     state.schedules = {};
-    state.shoppingLog = [];
-    save();
   }
 
   window.App.State = {
@@ -243,5 +256,8 @@ window.App = window.App || {};
     exportJson,
     importJson,
     resetRecords,
+    clearDerived,
+    defaultWashState,
+    defaultCleanupGroups,
   };
 })();

@@ -7,7 +7,6 @@ window.App.UI = window.App.UI || {};
 
   const container = () => document.getElementById("tab-textschedule");
   const DUTY_ROWS = ["dishwash", "foodwaste", "lunchbag", "wipe", "floor", "delivery", "cleanup"];
-  const MEAL_EMOJI = { breakfast: "🌅", lunch: "🌞", dinner: "🌙" };
 
   function buildDisplayNameMap() {
     const state = window.App.State.get();
@@ -34,16 +33,15 @@ window.App.UI = window.App.UI || {};
 
   function buildMealText(dateStr, meals, displayNames) {
     const lines = [];
-    lines.push(`🍚 ${formatDateHeader(dateStr)} 勤務班表`);
-    lines.push("──────────");
+    lines.push(`${formatDateHeader(dateStr)} 勤務班表`);
     window.App.State.MEAL_KEYS.forEach((mealKey) => {
       const mealData = meals[mealKey];
       lines.push("");
-      lines.push(`${MEAL_EMOJI[mealKey]} ${window.App.State.MEAL_LABELS[mealKey]}`);
+      lines.push(`【${window.App.State.MEAL_LABELS[mealKey]}】`);
       DUTY_ROWS.forEach((duty) => {
         const ids = mealData[duty] || [];
         const names = ids.length ? ids.map((id) => displayNames[id] || id).join("、") : "－";
-        lines.push(`${window.App.State.DUTY_ICONS[duty]}${window.App.State.DUTY_LABELS[duty]}：${names}`);
+        lines.push(`${window.App.State.DUTY_LABELS[duty]}：${names}`);
       });
     });
     return lines.join("\n");
@@ -57,8 +55,7 @@ window.App.UI = window.App.UI || {};
     });
 
     const lines = [];
-    lines.push(`🙋 ${formatDateHeader(dateStr)} 個人勤務總覽`);
-    lines.push("──────────");
+    lines.push(`${formatDateHeader(dateStr)} 個人勤務總覽`);
 
     activeMembers.forEach((m) => {
       const parts = window.App.State.MEAL_KEYS.map((mealKey) => {

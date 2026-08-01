@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  const TABS = ["roster", "dutyconfig", "schedule", "textschedule", "shopping", "dashboard"];
+  const TABS = ["schedule", "textschedule", "roster", "dutyconfig", "shopping", "dashboard"];
 
   function renderAll() {
     window.App.UI.Roster.render();

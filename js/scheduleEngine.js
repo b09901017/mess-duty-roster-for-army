@@ -1,4 +1,12 @@
-/* 整合洗碗/其他勤務/送便當/撤收，計算某一天的班表（純函式）+ 預覽/確定紀錄 */
+/*
+ * 排班引擎。
+ *
+ * 設計重點：班表是「重播」出來的，不是一天一天累加出來的。
+ * state.committedDates（已確定的日期）+ state.shoppingLog（採買登記）是唯一的來源資料，
+ * 每次有變動就從頭依日期順序重算一遍，因此：
+ *   - 同一天不管重排幾次，只要名單/設定沒變，結果永遠一模一樣；
+ *   - 重排某一天會自動清掉那天之前的結果再排，不會殘留舊資料或重複累計次數。
+ */
 window.App = window.App || {};
 
 (function () {
@@ -103,24 +111,63 @@ window.App = window.App || {};
     };
   }
 
-  function decrementCounts(dutyCounts, ids, dutyKey) {
-    ids.forEach((id) => {
-      const counts = ensureDutyCounts(dutyCounts, id);
-      counts[dutyKey] = Math.max(0, (counts[dutyKey] || 0) - 1);
-    });
-  }
+  /** 重播：依日期順序把所有已確定的日期重算一遍，並套用採買調整 */
+  function rebuildAll() {
+    const state = window.App.State.get();
+    window.App.State.clearDerived();
 
-  function rollbackCommittedDay(dutyCounts, oldSchedule) {
-    MEAL_KEYS.forEach((meal) => {
-      const mealData = oldSchedule.meals[meal];
-      if (!mealData) return;
-      decrementCounts(dutyCounts, mealData.dishwash, "dishwash");
-      decrementCounts(dutyCounts, mealData.foodwaste, "foodwaste");
-      decrementCounts(dutyCounts, mealData.lunchbag, "lunchbag");
-      decrementCounts(dutyCounts, mealData.floor, "floor");
-      decrementCounts(dutyCounts, mealData.wipe, "wipe");
-      decrementCounts(dutyCounts, mealData.cleanup, "cleanup");
+    const running = {
+      members: state.members,
+      dutyCounts: state.dutyCounts,
+      washState: state.washState,
+      cleanupGroups: state.cleanupGroups,
+      dutySizeTable: state.dutySizeTable,
+    };
+
+    const shoppingByDate = {};
+    state.shoppingLog.forEach((entry) => {
+      (shoppingByDate[entry.date] = shoppingByDate[entry.date] || []).push(entry);
     });
+
+    const dates = state.committedDates.slice().sort();
+    const failed = [];
+
+    dates.forEach((dateStr) => {
+      const result = computeDay(dateStr, running);
+      if (!result.ok) {
+        failed.push({ date: dateStr, error: result.error });
+        return;
+      }
+
+      state.schedules[dateStr] = {
+        meals: result.meals,
+        warnings: result.warnings.slice(),
+        sizeConfig: result.sizeConfig,
+      };
+
+      running.dutyCounts = result.newDutyCounts;
+      running.washState = result.newWashState;
+      running.cleanupGroups = result.newCleanupGroups;
+
+      // 當天的採買調整要在推進到下一天之前套用，這樣代理人選才是依當下的次數決定
+      (shoppingByDate[dateStr] || []).forEach((entry) => {
+        window.App.Shopping.applyAdjustment(state.schedules[dateStr], running, entry);
+      });
+    });
+
+    state.dutyCounts = running.dutyCounts;
+    state.washState = running.washState;
+    state.cleanupGroups = running.cleanupGroups;
+
+    // 採買次數不是排班排出來的，直接依 log 統計
+    state.shoppingLog.forEach((entry) => {
+      ensureDutyCounts(state.dutyCounts, entry.memberId).shopping += 1;
+    });
+
+    state.committedDates = dates.filter((d) => !failed.some((f) => f.date === d));
+    window.App.State.save();
+
+    return { failed };
   }
 
   function currentSnapshot() {
@@ -135,57 +182,98 @@ window.App = window.App || {};
   }
 
   /**
-   * 預覽某一天的班表，完全不會寫入 localStorage、不會累計次數、不會推進洗碗指標。
-   * 若這天已經確定紀錄過，直接回傳已紀錄的內容。
+   * 算出「如果要排 dateStr 這天」時，該天開始前的狀態。
+   * 也就是把所有早於 dateStr 的已確定日期重播一遍（不含 dateStr 自己）。
    */
-  function previewDay(dateStr) {
+  function snapshotBefore(dateStr) {
     const state = window.App.State.get();
-    if (state.schedules[dateStr]) {
-      const committed = state.schedules[dateStr];
-      return { ok: true, committed: true, meals: committed.meals, warnings: committed.warnings || [] };
-    }
-    const result = computeDay(dateStr, currentSnapshot());
-    if (!result.ok) return result;
-    return { ok: true, committed: false, meals: result.meals, warnings: result.warnings };
+    const snapshot = {
+      members: state.members,
+      dutySizeTable: state.dutySizeTable,
+      dutyCounts: {},
+      washState: window.App.State.defaultWashState(),
+      cleanupGroups: window.App.State.defaultCleanupGroups(),
+    };
+    state.members.forEach((m) => (snapshot.dutyCounts[m.id] = window.App.State.emptyDutyCount()));
+
+    const shoppingByDate = {};
+    state.shoppingLog.forEach((entry) => {
+      (shoppingByDate[entry.date] = shoppingByDate[entry.date] || []).push(entry);
+    });
+
+    state.committedDates
+      .slice()
+      .sort()
+      .filter((d) => d < dateStr)
+      .forEach((d) => {
+        const result = computeDay(d, snapshot);
+        if (!result.ok) return;
+        snapshot.dutyCounts = result.newDutyCounts;
+        snapshot.washState = result.newWashState;
+        snapshot.cleanupGroups = result.newCleanupGroups;
+        const daySchedule = { meals: result.meals, warnings: result.warnings };
+        (shoppingByDate[d] || []).forEach((entry) => {
+          window.App.Shopping.applyAdjustment(daySchedule, snapshot, entry);
+        });
+      });
+
+    return snapshot;
   }
 
   /**
-   * 確定紀錄某一天：真正寫入班表、累計各項勤務次數、推進洗碗指標與撤收分組。
-   * @param {{force?: boolean}} opts - force=true 允許覆蓋已經確定過的這一天（會重新計算，請小心使用）
+   * 預覽某一天的班表，完全不會寫入 localStorage、不會累計次數、不會推進洗碗指標。
+   * 預覽結果跟「確定紀錄」之後看到的結果保證一致。
    */
-  function commitDay(dateStr, opts) {
-    opts = opts || {};
-    const state = window.App.State.get();
-
-    if (state.schedules[dateStr] && !opts.force) {
-      return {
-        ok: false,
-        error: `${dateStr} 已經確定紀錄過了，如果要覆蓋請使用「重新產生」。`,
-      };
-    }
-
-    const snapshot = currentSnapshot();
-    if (opts.force && state.schedules[dateStr]) {
-      snapshot.dutyCounts = cloneDutyCounts(state.dutyCounts);
-      rollbackCommittedDay(snapshot.dutyCounts, state.schedules[dateStr]);
-    }
-
-    const result = computeDay(dateStr, snapshot);
+  function previewDay(dateStr) {
+    const result = computeDay(dateStr, snapshotBefore(dateStr));
     if (!result.ok) return result;
 
-    state.dutyCounts = result.newDutyCounts;
-    state.washState = result.newWashState;
-    state.cleanupGroups = result.newCleanupGroups;
-    state.schedules[dateStr] = {
+    const state = window.App.State.get();
+    const alreadyCommitted = state.committedDates.includes(dateStr);
+    return {
+      ok: true,
+      committed: alreadyCommitted,
       meals: result.meals,
       warnings: result.warnings,
-      sizeConfig: result.sizeConfig,
-      generatedAt: new Date().toISOString(),
     };
-    window.App.State.save();
-
-    return { ok: true, meals: result.meals, warnings: result.warnings };
   }
 
-  window.App.ScheduleEngine = { computeDay, previewDay, commitDay };
+  /**
+   * 確定紀錄某一天。若這天已經紀錄過，會先清掉舊結果再重算，
+   * 因為結果是重播出來的，重排同一天必定得到跟原本一樣的班表。
+   */
+  function commitDay(dateStr) {
+    const state = window.App.State.get();
+    if (!state.committedDates.includes(dateStr)) {
+      state.committedDates.push(dateStr);
+    }
+    const { failed } = rebuildAll();
+
+    const failure = failed.find((f) => f.date === dateStr);
+    if (failure) {
+      return { ok: false, error: failure.error };
+    }
+
+    const schedule = state.schedules[dateStr];
+    return { ok: true, meals: schedule.meals, warnings: schedule.warnings };
+  }
+
+  /** 取消某一天的紀錄 */
+  function uncommitDay(dateStr) {
+    const state = window.App.State.get();
+    state.committedDates = state.committedDates.filter((d) => d !== dateStr);
+    state.shoppingLog = state.shoppingLog.filter((e) => e.date !== dateStr);
+    rebuildAll();
+    return { ok: true };
+  }
+
+  window.App.ScheduleEngine = {
+    computeDay,
+    previewDay,
+    commitDay,
+    uncommitDay,
+    rebuildAll,
+    snapshotBefore,
+    currentSnapshot,
+  };
 })();

@@ -331,44 +331,113 @@ th {
   text-align: right;
 }
 
-/* 公平性總覽 */
-.bar-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 4px 0;
+/* 公平性總覽 — 每項勤務一個圓餅圖 + 對照表 */
+.duty-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
 }
 
-.bar-name {
-  width: 96px;
+.duty-chart-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.duty-chart-card h3 {
+  margin: 0 0 2px;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.chart-caption {
+  margin: 0 0 2px;
   font-size: 0.82rem;
-  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.chart-extremes {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.chart-and-table {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.pie {
+  width: 184px;
+  height: 184px;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.slice {
+  transition: opacity 0.12s ease;
+}
+
+.pie:hover .slice {
+  opacity: 0.68;
+}
+
+.pie .slice:hover {
+  opacity: 1;
+}
+
+.chart-table {
+  flex: 1 1 170px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.chart-table table {
+  font-size: 0.8rem;
+}
+
+.chart-table th,
+.chart-table td {
+  padding: 4px 6px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.chart-table thead th {
+  position: sticky;
+  top: 0;
+  background: #fdf3e9;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: baseline;
+}
+
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.legend-item {
+  font-size: 0.82rem;
+  color: var(--muted);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-@media (max-width: 420px) {
-  .bar-row {
-    flex-wrap: wrap;
-  }
-  .bar-name {
-    width: 100%;
-    order: -1;
-  }
-}
-
-.bar-track {
-  flex: 1;
-  background: #f5ece0;
-  border-radius: 6px;
-  overflow: hidden;
-  height: 14px;
-}
-
-.bar-fill {
-  height: 100%;
-  background: var(--accent);
 }
 
 .text-schedule-area {

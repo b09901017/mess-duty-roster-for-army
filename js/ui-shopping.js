@@ -17,9 +17,13 @@ window.App.UI = window.App.UI || {};
       .reverse()
       .map((entry) => {
         const m = window.App.State.memberById(entry.memberId);
-        return `<tr><td>${entry.date}</td><td>${window.App.State.MEAL_LABELS[entry.meal]}</td><td>${
-          m ? `${m.cohort}-${m.seq} ${m.name}` : entry.memberId
-        }</td></tr>`;
+        return `<tr>
+          <td data-label="日期">${entry.date}</td>
+          <td data-label="餐別">${window.App.State.MEAL_LABELS[entry.meal]}</td>
+          <td data-label="人員">${m ? `${m.cohort}-${m.seq} ${m.name}` : entry.memberId}</td>
+          <td data-label="操作"><button type="button" class="danger remove-shopping-btn"
+            data-date="${entry.date}" data-meal="${entry.meal}" data-member="${entry.memberId}">刪除</button></td>
+        </tr>`;
       })
       .join("");
 
@@ -65,18 +69,35 @@ window.App.UI = window.App.UI || {};
 
       <div class="card">
         <h2>歷史紀錄</h2>
-        <table>
-          <thead><tr><th>日期</th><th>餐別</th><th>人員</th></tr></thead>
-          <tbody>${historyRows || `<tr><td colspan="3" class="empty-state">尚無紀錄</td></tr>`}</tbody>
+        <div class="table-scroll">
+        <table class="responsive-table">
+          <thead><tr><th>日期</th><th>餐別</th><th>人員</th><th>操作</th></tr></thead>
+          <tbody>${historyRows || `<tr><td colspan="4" class="empty-state">尚無紀錄</td></tr>`}</tbody>
         </table>
+        </div>
       </div>
     `;
 
     bindEvents();
   }
 
+  function rerenderOthers() {
+    if (window.App.UI.Schedule) window.App.UI.Schedule.render();
+    if (window.App.UI.TextSchedule) window.App.UI.TextSchedule.render();
+    if (window.App.UI.Dashboard) window.App.UI.Dashboard.render();
+  }
+
   function bindEvents() {
     const root = container();
+
+    root.querySelectorAll(".remove-shopping-btn").forEach((delBtn) => {
+      delBtn.addEventListener("click", () => {
+        window.App.Shopping.removeShopping(delBtn.dataset.date, delBtn.dataset.meal, delBtn.dataset.member);
+        render();
+        rerenderOthers();
+      });
+    });
+
     const btn = root.querySelector("#log-shopping-btn");
     if (!btn) return;
     btn.addEventListener("click", () => {
@@ -96,9 +117,7 @@ window.App.UI = window.App.UI || {};
       }
       render();
       root.querySelector("#shopping-feedback").innerHTML = html;
-      if (window.App.UI.Schedule) window.App.UI.Schedule.render();
-      if (window.App.UI.TextSchedule) window.App.UI.TextSchedule.render();
-      if (window.App.UI.Dashboard) window.App.UI.Dashboard.render();
+      rerenderOthers();
     });
   }
 

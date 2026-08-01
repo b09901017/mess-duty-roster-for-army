@@ -3,59 +3,58 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>值星/公差輪值表產生器</title>
+<title>🍚 值星公差小幫手</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<header>
-  <h1>值星/公差輪值表產生器</h1>
-  <p class="subtitle">純前端排班小工具，資料只存在你的瀏覽器中</p>
-</header>
+<div class="app-shell">
+  <header class="app-header">
+    <h1>🍚 值星公差小幫手</h1>
+    <p class="subtitle">261 梯 × 263 梯 · 公平自動排勤務</p>
+  </header>
 
-<main>
-  <section class="card">
-    <h2>1. 人員名單</h2>
-    <div class="roster-input">
-      <input type="text" id="member-name" placeholder="輸入姓名或代號後按 Enter 新增">
-      <button id="add-member-btn" type="button">新增</button>
-    </div>
-    <ul id="member-list" class="member-list"></ul>
-    <p class="hint">可為每個人設定「排除日期」（該員請假、不可排班的日子），格式為 YYYY-MM-DD，多個日期用逗號分隔。</p>
-  </section>
+  <nav class="tab-bar" id="tab-bar">
+    <button class="tab-btn active" data-tab="roster">👥 名冊</button>
+    <button class="tab-btn" data-tab="dutyconfig">⚙️ 勤務設定</button>
+    <button class="tab-btn" data-tab="schedule">📅 產生班表</button>
+    <button class="tab-btn" data-tab="sharecard">🎀 分享卡</button>
+    <button class="tab-btn" data-tab="shopping">🛒 採買紀錄</button>
+    <button class="tab-btn" data-tab="dashboard">📊 公平性總覽</button>
+  </nav>
 
-  <section class="card">
-    <h2>2. 排班設定</h2>
-    <div class="settings-grid">
-      <label>
-        起始日期
-        <input type="date" id="start-date">
-      </label>
-      <label>
-        結束日期
-        <input type="date" id="end-date">
-      </label>
-      <label>
-        每日需求人數
-        <input type="number" id="people-per-day" min="1" value="1">
-      </label>
-    </div>
-    <button id="generate-btn" type="button" class="primary">產生班表</button>
-  </section>
+  <main class="tab-content">
+    <section id="tab-roster" class="tab-panel active"></section>
+    <section id="tab-dutyconfig" class="tab-panel"></section>
+    <section id="tab-schedule" class="tab-panel"></section>
+    <section id="tab-sharecard" class="tab-panel"></section>
+    <section id="tab-shopping" class="tab-panel"></section>
+    <section id="tab-dashboard" class="tab-panel"></section>
+  </main>
 
-  <section class="card">
-    <h2>3. 班表結果</h2>
-    <div id="result-actions" class="result-actions" hidden>
-      <button id="export-csv-btn" type="button">匯出 CSV</button>
-      <button id="print-btn" type="button">列印</button>
-    </div>
-    <div id="roster-result"></div>
-  </section>
-</main>
+  <footer class="app-footer">
+    <span>資料儲存在本機瀏覽器（localStorage）</span>
+    <button id="export-btn" type="button" class="ghost-btn">匯出備份</button>
+    <label class="ghost-btn file-label">
+      匯入備份
+      <input type="file" id="import-input" accept="application/json" hidden>
+    </label>
+  </footer>
+</div>
 
-<footer>
-  <p>資料自動儲存在本機瀏覽器（localStorage），清除瀏覽器資料會遺失設定。</p>
-</footer>
-
+<script src="js/state.js"></script>
+<script src="js/washSchedule.js"></script>
+<script src="js/otherDuties.js"></script>
+<script src="js/cleanupGroups.js"></script>
+<script src="js/dutySizeConfig.js"></script>
+<script src="js/scheduleEngine.js"></script>
+<script src="js/roster.js"></script>
+<script src="js/shopping.js"></script>
+<script src="js/ui-roster.js"></script>
+<script src="js/ui-dutyconfig.js"></script>
+<script src="js/ui-schedule.js"></script>
+<script src="js/ui-sharecard.js"></script>
+<script src="js/ui-shopping.js"></script>
+<script src="js/ui-dashboard.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

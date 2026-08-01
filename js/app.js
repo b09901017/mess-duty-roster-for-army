@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  const TABS = ["schedule", "textschedule", "roster", "dutyconfig", "shopping", "dashboard"];
+  const TABS = ["schedule", "textschedule", "roster", "dutyconfig", "shopping", "dashboard", "cloud"];
 
   function renderAll() {
     window.App.UI.Roster.render();
@@ -11,7 +11,9 @@
     window.App.UI.TextSchedule.render();
     window.App.UI.Shopping.render();
     window.App.UI.Dashboard.render();
+    window.App.UI.Cloud.render();
   }
+  window.App.renderAll = renderAll;
 
   function showTab(tabName) {
     TABS.forEach((name) => {
@@ -67,5 +69,10 @@
     initTabs();
     initExportImport();
     renderAll();
+
+    window.App.CloudSync.onStatusChange(() => {
+      if (window.App.UI.Cloud) window.App.UI.Cloud.refreshStatusOnly();
+    });
+    window.App.CloudSync.init();
   });
 })();

@@ -164,8 +164,35 @@ window.App = window.App || {};
 
   let state = load();
 
+  const saveListeners = [];
+  let suppressListeners = false;
+
+  /** 註冊「資料存檔後」的回呼，雲端同步用它來自動上傳 */
+  function onSave(fn) {
+    saveListeners.push(fn);
+  }
+
   function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (!suppressListeners) {
+      saveListeners.forEach((fn) => {
+        try {
+          fn(state);
+        } catch (err) {
+          console.warn("save listener 發生錯誤", err);
+        }
+      });
+    }
+  }
+
+  /** 套用來自雲端的資料時用這個，避免又觸發一次上傳造成無限迴圈 */
+  function saveWithoutNotifying(fn) {
+    suppressListeners = true;
+    try {
+      fn();
+    } finally {
+      suppressListeners = false;
+    }
   }
 
   function getState() {
@@ -259,5 +286,8 @@ window.App = window.App || {};
     clearDerived,
     defaultWashState,
     defaultCleanupGroups,
+    onSave,
+    saveWithoutNotifying,
+    migrate,
   };
 })();

@@ -30,13 +30,30 @@ window.App.UI = window.App.UI || {};
   const CENTER = 92;
   const GAP_DEG = 1.4; // 扇形之間留 surface 色的縫，取代描邊
 
-  function bucketFor(count, mean) {
-    if (mean <= 0) return BUCKETS[2];
-    const ratio = count / mean;
-    if (ratio >= 1.35) return BUCKETS[4];
-    if (ratio >= 1.1) return BUCKETS[3];
-    if (ratio <= 0.65) return BUCKETS[0];
-    if (ratio <= 0.9) return BUCKETS[1];
+  /**
+   * 誰「應該」被排到這項勤務。固定送便當的兩位不會被排到洗碗與其他雜項勤務，
+   * 所以算公平的時候不能把他們算進去，否則他們的 0 次會被誤判成「做太少」。
+   */
+  function eligibleFor(dutyKey, members) {
+    if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
+    if (dutyKey === "cleanup" || dutyKey === "shopping") return members;
+    return members.filter((m) => m.fixedRole !== "delivery");
+  }
+
+  /**
+   * 公平區間：總共 total 人次要分給 n 個人時，最公平的分法是每人拿 floor 或 ceil，
+   * 落在這個區間內就算公平。用整數區間而不是「跟平均值的比例」，是因為勤務還沒輪完
+   * 一圈時（例如擦桌子一天只有3個名額），平均值會小於1，任何做過一次的人都會被
+   * 誤判成「偏多」。
+   */
+  function fairBand(total, n) {
+    if (n <= 0) return { lo: 0, hi: 0 };
+    return { lo: Math.floor(total / n), hi: Math.ceil(total / n) };
+  }
+
+  function bucketFor(count, band) {
+    if (count > band.hi) return count >= band.hi + 2 ? BUCKETS[4] : BUCKETS[3];
+    if (count < band.lo) return count <= band.lo - 2 ? BUCKETS[0] : BUCKETS[1];
     return BUCKETS[2];
   }
 
@@ -65,11 +82,9 @@ window.App.UI = window.App.UI || {};
   }
 
   function dutySection(dutyKey, members, dutyCounts) {
-    const rows = members
-      .map((m) => ({ m, count: (dutyCounts[m.id] && dutyCounts[m.id][dutyKey]) || 0 }))
-      .filter((r) => r.count > 0);
-
-    const total = rows.reduce((s, r) => s + r.count, 0);
+    const countOf = (m) => (dutyCounts[m.id] && dutyCounts[m.id][dutyKey]) || 0;
+    const eligible = eligibleFor(dutyKey, members);
+    const total = eligible.reduce((s, m) => s + countOf(m), 0);
     const label = `${window.App.State.DUTY_ICONS[dutyKey]} ${window.App.State.DUTY_LABELS[dutyKey]}`;
 
     if (total === 0) {
@@ -80,13 +95,11 @@ window.App.UI = window.App.UI || {};
         </section>`;
     }
 
-    // 平均只看「有做過的人」以外也要算進從沒做過的人，否則平均會被高估
-    const mean = total / members.length;
+    const band = fairBand(total, eligible.length);
+    const mean = total / eligible.length;
 
     // 扇形順序固定用名冊順序（不依次數排名），這樣不同勤務之間位置一致、比較好對照
-    const ordered = members
-      .map((m) => ({ m, count: (dutyCounts[m.id] && dutyCounts[m.id][dutyKey]) || 0 }))
-      .filter((r) => r.count > 0);
+    const ordered = eligible.map((m) => ({ m, count: countOf(m) })).filter((r) => r.count > 0);
 
     const maxCount = Math.max(...ordered.map((r) => r.count));
     const minCount = Math.min(...ordered.map((r) => r.count));
@@ -94,7 +107,7 @@ window.App.UI = window.App.UI || {};
     let cursor = 0;
     const slices = ordered.map((r) => {
       const sweep = (r.count / total) * 360;
-      const bucket = bucketFor(r.count, mean);
+      const bucket = bucketFor(r.count, band);
       const gap = ordered.length > 1 ? Math.min(GAP_DEG, sweep * 0.25) : 0;
       const start = cursor;
       const end = cursor + sweep;
@@ -114,24 +127,27 @@ window.App.UI = window.App.UI || {};
     // 18個扇形沒辦法每個都標名字（會疊在一起），改成只在圖下方點名最多與最少的人，
     // 完整數字由旁邊的表格與滑鼠提示提供。
     const topNames = ordered.filter((r) => r.count === maxCount).map((r) => r.m.name);
-    const bottomNames = ordered.filter((r) => r.count === minCount).map((r) => r.m.name);
-    const zeroNames = members
-      .filter((m) => !((dutyCounts[m.id] && dutyCounts[m.id][dutyKey]) || 0))
-      .map((m) => m.name);
+    const zeroCount = eligible.filter((m) => countOf(m) === 0).length;
+    const overNames = eligible.filter((m) => countOf(m) > band.hi).map((m) => m.name);
+    const underNames = eligible.filter((m) => countOf(m) < band.lo).map((m) => m.name);
 
     const extremeParts = [`最多 ${topNames.slice(0, 3).join("、")}${topNames.length > 3 ? "等" : ""} ${maxCount} 次`];
-    if (zeroNames.length) {
-      extremeParts.push(`還沒輪到 ${zeroNames.length} 人`);
-    } else if (minCount !== maxCount) {
-      extremeParts.push(`最少 ${bottomNames.slice(0, 3).join("、")}${bottomNames.length > 3 ? "等" : ""} ${minCount} 次`);
+    if (zeroCount) extremeParts.push(`還沒輪到 ${zeroCount} 人`);
+    if (overNames.length || underNames.length) {
+      const bits = [];
+      if (overNames.length) bits.push(`偏多 ${overNames.length} 人`);
+      if (underNames.length) bits.push(`偏少 ${underNames.length} 人`);
+      extremeParts.push(bits.join("、"));
+    } else {
+      extremeParts.push("目前分配平均 ✅");
     }
 
-    const tableRows = members
-      .map((m) => ({ m, count: (dutyCounts[m.id] && dutyCounts[m.id][dutyKey]) || 0 }))
+    const tableRows = eligible
+      .map((m) => ({ m, count: countOf(m) }))
       .sort((a, b) => b.count - a.count || a.m.cohort.localeCompare(b.m.cohort) || a.m.seq - b.m.seq)
       .map((r) => {
         const pct = total ? ((r.count / total) * 100).toFixed(1) : "0.0";
-        const bucket = bucketFor(r.count, mean);
+        const bucket = bucketFor(r.count, band);
         return `<tr>
           <td><span class="swatch" style="background:${bucket.color}"></span>${escapeHtml(r.m.name)}</td>
           <td class="num">${r.count}</td>
@@ -140,10 +156,14 @@ window.App.UI = window.App.UI || {};
       })
       .join("");
 
+    const bandText = band.lo === band.hi ? `每人 ${band.lo} 次` : `每人 ${band.lo}～${band.hi} 次`;
+
     return `
       <section class="duty-chart-card">
         <h3>${label}</h3>
-        <p class="chart-caption">共 ${total} 人次，平均每人 ${mean.toFixed(1)} 次</p>
+        <p class="chart-caption">共 ${total} 人次，${eligible.length} 人分，平均 ${mean.toFixed(
+          1
+        )} 次（公平範圍：${bandText}）</p>
         <p class="chart-extremes">${escapeHtml(extremeParts.join("　·　"))}</p>
         <div class="chart-and-table">
           <svg class="pie" viewBox="0 0 ${CENTER * 2} ${CENTER * 2}" role="img"
@@ -171,7 +191,7 @@ window.App.UI = window.App.UI || {};
     return `
       <div class="card">
         <h2>怎麼看這些圖</h2>
-        <p class="hint">扇形越大＝這個人做這項勤務的次數越多。顏色代表跟「平均值」比起來偏多還偏少，<strong>整張圖越接近灰色就代表分配越平均</strong>。每張圖下方會點名做最多與最少的人，完整數字看旁邊的表格，滑鼠移到扇形上也會顯示。還沒輪到的人次數為 0，不會出現在圓餅圖裡，但表格中看得到。</p>
+        <p class="hint">扇形越大＝這個人做這項勤務的次數越多。顏色是拿他的次數跟<strong>公平範圍</strong>比：勤務還沒輪完整圈時（例如擦桌子一天只有3個名額），每人拿 0 次或 1 次都算公平，所以都是灰色；只有真的超出公平範圍才會變橘色或藍色。<strong>整張圖越接近灰色＝分配越平均</strong>。完整數字看旁邊的表格，滑鼠移到扇形上也會顯示。固定送便當的兩位不會被排到洗碗與其他雜項勤務，所以那幾張圖不會把他們算進去。</p>
         <div class="legend-row">
           ${BUCKETS.map(
             (b) => `<span class="legend-item"><span class="swatch" style="background:${b.color}"></span>${b.label}</span>`

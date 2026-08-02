@@ -105,10 +105,10 @@ window.App = window.App || {};
 
       const otherAssign = window.App.OtherDuties.assignOtherDuties(otherPool, newDutyCounts, mealSizeConfig);
 
-      // 抬便當上車、上樓：除了洗碗的人以外，當餐在場的人全部一起幫忙
-      const dishwashSet = new Set(dishwashIds);
+      // 抬便當上車、上樓：除了洗碗的人與固定送便當的兩位以外，當餐在場的人全部一起幫忙
+      const carryExcluded = new Set(dishwashIds.concat(deliveryIds));
       const carryIds = activeMembers
-        .filter((m) => availableForMeal(m.id, meal) && !dishwashSet.has(m.id))
+        .filter((m) => availableForMeal(m.id, meal) && !carryExcluded.has(m.id))
         .map((m) => m.id);
 
       meals[meal] = {

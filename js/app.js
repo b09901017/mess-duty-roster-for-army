@@ -68,6 +68,17 @@
   document.addEventListener("DOMContentLoaded", () => {
     initTabs();
     initExportImport();
+
+    /*
+     * 班表、次數這些都是「算出來的」快取，會跟著存進 localStorage。
+     * 如果排班規則改版了，舊快取不會自己更新，重新整理後看到的還會是舊版算的結果。
+     * 所以每次開啟時都依現行規則重播一次，確保畫面永遠是最新邏輯算出來的。
+     * 包在 saveWithoutNotifying 裡是為了不要在雲端還沒拉下來之前就搶著上傳。
+     */
+    window.App.State.saveWithoutNotifying(() => {
+      window.App.ScheduleEngine.rebuildAll();
+    });
+
     renderAll();
 
     window.App.CloudSync.onStatusChange(() => {

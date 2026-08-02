@@ -19,21 +19,27 @@ window.App.UI = window.App.UI || {};
     return ids && ids.length ? ids.map(memberLabel).join("、") : "（無）";
   }
 
-  function dutyLine(duty, ids) {
+  function dutyLineText(duty, text) {
     return `
       <div class="duty-line">
-        <span class="duty-label">${window.App.State.DUTY_ICONS[duty]} ${window.App.State.DUTY_LABELS[duty]}</span>
-        <span class="duty-names">${namesOrDash(ids)}</span>
+        <span class="duty-label">${window.App.State.DUTY_ICONS[duty] || ""} ${window.App.State.DUTY_LABELS[duty]}</span>
+        <span class="duty-names">${text}</span>
       </div>`;
+  }
+
+  function dutyLine(duty, ids) {
+    return dutyLineText(duty, namesOrDash(ids));
   }
 
   function mealCard(mealKey, mealData, activeMembers) {
     return `
       <div class="meal-card">
         <h3>${window.App.State.MEAL_LABELS[mealKey]}</h3>
-        ${window.App.State.MEAL_DUTY_ROWS.map((rowKey) =>
-          dutyLine(rowKey, window.App.DutyView.mealRowIds(mealData, rowKey, activeMembers))
-        ).join("")}
+        ${window.App.State.MEAL_DUTY_ROWS.map((rowKey) => {
+          const description = window.App.DutyView.mealRowDescription(rowKey);
+          if (description) return dutyLineText(rowKey, description);
+          return dutyLine(rowKey, window.App.DutyView.mealRowIds(mealData, rowKey, activeMembers));
+        }).join("")}
       </div>`;
   }
 

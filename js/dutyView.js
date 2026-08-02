@@ -46,7 +46,7 @@ window.App = window.App || {};
     });
 
     if (helpsWithLunchbag(mealData, memberId)) labels.push(short.lunchbagHelp);
-    if (has(mealData, "carryVehicle", memberId)) labels.push(short.carryVehicle, short.carryUpstairs);
+    if (has(mealData, "carryVehicle", memberId)) labels.push(short.carry);
     if (has(mealData, "cleanup", memberId)) labels.push(short.cleanup);
 
     return labels;
@@ -79,12 +79,24 @@ window.App = window.App || {};
     return (mealData && mealData[rowKey]) || [];
   }
 
+  /*
+   * 有些欄位與其列出十幾個名字，不如直接寫規則好讀。
+   * 抬便當上車、上樓就是「洗碗以外的人全上」，洗碗名單就在同一張表的第一行，
+   * 讀的人自己對照得出來。
+   */
+  const ROW_DESCRIPTIONS = { carry: "除了洗碗的人，其餘全員" };
+
+  function mealRowDescription(rowKey) {
+    return ROW_DESCRIPTIONS[rowKey] || null;
+  }
+
   window.App.DutyView = {
     mealDutyLabels,
     dailyDutyLabels,
     helpsWithLunchbag,
     lunchbagHelpers,
     mealRowIds,
+    mealRowDescription,
     isAbsent,
   };
 })();

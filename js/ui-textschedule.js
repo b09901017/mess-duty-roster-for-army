@@ -58,8 +58,9 @@ window.App.UI = window.App.UI || {};
       lines.push("");
       lines.push(`【${S.MEAL_LABELS[mealKey]}】`);
       S.MEAL_DUTY_ROWS.forEach((rowKey) => {
-        const ids = window.App.DutyView.mealRowIds(mealData, rowKey, active);
-        lines.push(`${S.DUTY_LABELS[rowKey]}：${nameList(ids)}`);
+        const description = window.App.DutyView.mealRowDescription(rowKey);
+        const value = description || nameList(window.App.DutyView.mealRowIds(mealData, rowKey, active));
+        lines.push(`${S.DUTY_LABELS[rowKey]}：${value}`);
       });
     });
 

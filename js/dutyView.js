@@ -18,8 +18,14 @@ window.App = window.App || {};
     return ((mealData && mealData[dutyKey]) || []).includes(memberId);
   }
 
-  /** 這一餐這個人要不要幫忙包便當（洗碗的跟送便當的不用） */
+  /** 這一餐這個人不在（去採買了） */
+  function isAbsent(mealData, memberId) {
+    return has(mealData, "absent", memberId);
+  }
+
+  /** 這一餐這個人要不要幫忙包便當（洗碗的、送便當的、以及人不在的不用） */
   function helpsWithLunchbag(mealData, memberId) {
+    if (isAbsent(mealData, memberId)) return false;
     if (has(mealData, "lunchbag", memberId)) return false; // 他本來就是包便當的
     if (has(mealData, "dishwash", memberId)) return false;
     if (has(mealData, "delivery", memberId)) return false;
@@ -32,6 +38,7 @@ window.App = window.App || {};
    */
   function mealDutyLabels(mealData, memberId) {
     const short = window.App.State.DUTY_SHORT_LABELS;
+    if (isAbsent(mealData, memberId)) return [short.shopping];
     const labels = [];
 
     PRIMARY_DUTIES.forEach((duty) => {
@@ -49,7 +56,10 @@ window.App = window.App || {};
     return labels;
   }
 
-  /** 某人今天的全日勤務（洗衣籃） */
+  /**
+   * 某人今天的全日勤務（洗衣籃）。
+   * 採買不列在這裡，因為早餐、中餐那兩格已經標了「採買」，重複寫反而囉唆。
+   */
   function dailyDutyLabels(daily, memberId) {
     const short = window.App.State.DUTY_SHORT_LABELS;
     const labels = [];
@@ -65,5 +75,5 @@ window.App = window.App || {};
     return activeMembers.filter((m) => helpsWithLunchbag(mealData, m.id)).map((m) => m.id);
   }
 
-  window.App.DutyView = { mealDutyLabels, dailyDutyLabels, helpsWithLunchbag, lunchbagHelpers };
+  window.App.DutyView = { mealDutyLabels, dailyDutyLabels, helpsWithLunchbag, lunchbagHelpers, isAbsent };
 })();

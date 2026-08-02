@@ -113,6 +113,8 @@ window.App.UI = window.App.UI || {};
       selectedDate = dateInput.value;
       lastPreview = null;
       render();
+      // 文字班表跟著換日期，否則切過去看到的還是上一天的內容
+      rerenderOthers();
     });
 
     const previewBtn = root.querySelector("#preview-btn");

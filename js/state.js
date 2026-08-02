@@ -32,7 +32,7 @@ window.App = window.App || {};
   ];
 
   // 一天只做一次、不分餐別的勤務
-  const DAILY_DUTY_ROWS = ["laundryUp", "laundryDown"];
+  const DAILY_DUTY_ROWS = ["shopping", "laundryUp", "laundryDown"];
 
   const DUTY_LABELS = {
     dishwash: "洗碗",
@@ -64,6 +64,7 @@ window.App = window.App || {};
     cleanup: "撤收",
     laundryUp: "抬洗衣籃上來",
     laundryDown: "抬洗衣籃下去",
+    shopping: "採買",
   };
 
   const DUTY_ICONS = {
@@ -152,6 +153,7 @@ window.App = window.App || {};
       { minActiveCount: 14, dishwash: 5, foodwaste: 3, lunchbag: 2, wipe: 1, floor: 1 },
       { minActiveCount: 13, dishwash: 5, foodwaste: 3, lunchbag: 1, wipe: 1, floor: 1 },
       { minActiveCount: 12, dishwash: 5, foodwaste: 2, lunchbag: 1, wipe: 1, floor: 1 },
+      { minActiveCount: 11, dishwash: 5, foodwaste: 2, lunchbag: 0, wipe: 1, floor: 1 },
     ];
   }
 
@@ -167,21 +169,34 @@ window.App = window.App || {};
     return { lastAssignedId: null, lastDown: [] };
   }
 
+  /** 固定的採買星期表（0=週日 … 6=週六），可在「採買」分頁修改 */
+  function defaultShoppingRoster() {
+    return {
+      0: null,
+      1: "263-2", // 週一 呂胤玄
+      2: "263-3", // 週二 林柏翰
+      3: "261-3", // 週三 陳柏翰
+      4: "261-6", // 週四 陳俊穎
+      5: null,
+      6: null,
+    };
+  }
+
   function defaultState() {
     const members = seedMembers();
     const dutyCounts = {};
     members.forEach((m) => (dutyCounts[m.id] = emptyDutyCount()));
 
     return {
-      version: 4,
+      version: 5,
       members,
       dutySizeTable: defaultDutySizeTable(),
+      shoppingRoster: defaultShoppingRoster(),
 
       // ── 來源資料（真正被使用者決定的東西）────────────────────────────
-      // 已確定紀錄的日期，以及採買登記。整個系統的班表都是由這兩者「重播」推導出來的，
+      // 已確定紀錄的日期。整個系統的班表都是由名冊、設定與這份清單「重播」推導出來的，
       // 所以同一天不管重排幾次，只要名單與設定沒變，結果一定一樣。
       committedDates: [],
-      shoppingLog: [],
 
       // ── 推導出來的快取（由 ScheduleEngine.rebuildAll 重算，不要手動改）──
       dutyCounts,
@@ -207,11 +222,15 @@ window.App = window.App || {};
 
   function migrate(parsed) {
     const base = defaultState();
-    return Object.assign({}, base, parsed, {
+    const merged = Object.assign({}, base, parsed, {
       washState: Object.assign({}, base.washState, parsed.washState),
       cleanupGroups: Object.assign({}, base.cleanupGroups, parsed.cleanupGroups),
       laundryState: Object.assign({}, base.laundryState, parsed.laundryState),
+      shoppingRoster: Object.assign({}, base.shoppingRoster, parsed.shoppingRoster),
     });
+    // 舊版的「臨時登記採買」已改成固定星期表，殘留欄位不再使用
+    delete merged.shoppingLog;
+    return merged;
   }
 
   let state = load();
@@ -292,10 +311,9 @@ window.App = window.App || {};
     replaceState(migrate(parsed));
   }
 
-  /** 重置所有勤務紀錄（次數、班表、洗碗指標、撤收分組、採買紀錄），保留人員名單 */
+  /** 重置所有勤務紀錄（次數、班表、洗碗指標、撤收分組），保留人員名單與採買星期表 */
   function resetRecords() {
     state.committedDates = [];
-    state.shoppingLog = [];
     clearDerived();
     save();
   }
@@ -344,6 +362,7 @@ window.App = window.App || {};
     defaultWashState,
     defaultCleanupGroups,
     defaultLaundryState,
+    defaultShoppingRoster,
     onSave,
     saveWithoutNotifying,
     migrate,

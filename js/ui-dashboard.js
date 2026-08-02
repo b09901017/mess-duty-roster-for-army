@@ -14,7 +14,8 @@ window.App.UI = window.App.UI || {};
   "use strict";
 
   const container = () => document.getElementById("tab-dashboard");
-  const DUTY_KEYS = window.App.State.DUTY_KEYS;
+  // 採買是固定的星期輪值，不是靠公平演算法分的，畫成公平圖沒有意義，次數在「採買」分頁看
+  const DUTY_KEYS = window.App.State.DUTY_KEYS.filter((k) => k !== "shopping");
 
   // diverging：做最少 → 剛好 → 做最多
   const BUCKETS = [
@@ -31,13 +32,13 @@ window.App.UI = window.App.UI || {};
   const GAP_DEG = 1.4; // 扇形之間留 surface 色的縫，取代描邊
 
   /**
-   * 誰「應該」被排到這項勤務。固定送便當的兩位不會被排到洗碗與其他雜項勤務，
+   * 誰「應該」被排到這項勤務。固定送便當的兩位不會被排到洗碗、雜項勤務與撤收，
    * 所以算公平的時候不能把他們算進去，否則他們的 0 次會被誤判成「做太少」。
+   * 洗衣籃是全員一起輪（含送便當的兩位）。
    */
   function eligibleFor(dutyKey, members) {
     if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
-    // 撤收、洗衣籃、採買全員都要輪，包含固定送便當的兩位
-    if (dutyKey === "cleanup" || dutyKey === "laundry" || dutyKey === "shopping") return members;
+    if (dutyKey === "laundry") return members;
     return members.filter((m) => m.fixedRole !== "delivery");
   }
 

@@ -2,7 +2,7 @@
  * 排班引擎。
  *
  * 設計重點：班表是「重播」出來的，不是一天一天累加出來的。
- * state.committedDates（已確定的日期）+ state.shoppingLog（採買登記）是唯一的來源資料，
+ * state.committedDates（已確定的日期）是唯一的來源資料，配上名冊與各項設定，
  * 每次有變動就從頭依日期順序重算一遍，因此：
  *   - 同一天不管重排幾次，只要名單/設定沒變，結果永遠一模一樣；
  *   - 重排某一天會自動清掉那天之前的結果再排，不會殘留舊資料或重複累計次數。
@@ -35,7 +35,7 @@ window.App = window.App || {};
   /**
    * 純計算：不會修改任何全域狀態，只根據傳入的 snapshot 算出這一天的班表。
    * @param {string} dateStr
-   * @param {{members, dutyCounts, washState, cleanupGroups, laundryState, dutySizeTable}} snapshot
+   * @param {{members, dutyCounts, washState, cleanupGroups, laundryState, dutySizeTable, shoppingRoster}} snapshot
    */
   function computeDay(dateStr, snapshot) {
     const activeMembers = snapshot.members.filter((m) => window.App.State.isActiveOn(m, dateStr));
@@ -51,6 +51,18 @@ window.App = window.App || {};
 
     const warnings = [];
 
+    /*
+     * 採買的人當天早餐、中餐完全不排勤務（含撤收），晚餐才歸隊。
+     * 少一個人做事，所以那兩餐的包便當袋子少一位，人數才對得起來。
+     */
+    const shopper = window.App.ShoppingRoster.shopperFor(dateStr, snapshot.members, snapshot.shoppingRoster);
+    if (shopper.warning) warnings.push(shopper.warning);
+    const shopperId = shopper.memberId;
+    const SHOPPER_OFF_MEALS = ["breakfast", "lunch"];
+    const isOffForShopping = (memberId, meal) =>
+      shopperId != null && memberId === shopperId && SHOPPER_OFF_MEALS.indexOf(meal) !== -1;
+    const availableForMeal = (memberId, meal) => !isOffForShopping(memberId, meal);
+
     const deliveryMembers = activeMembers.filter((m) => m.fixedRole === "delivery");
     const deliveryIds = deliveryMembers.map((m) => m.id);
     if (deliveryIds.length !== 2) {
@@ -65,7 +77,12 @@ window.App = window.App || {};
       263: activeMembers.filter((m) => m.cohort === "263").sort(bySeq),
     };
 
-    const washDay = window.App.WashSchedule.computeWashDay(snapshot.washState, pools, sizeConfig.dishwash);
+    const washDay = window.App.WashSchedule.computeWashDay(
+      snapshot.washState,
+      pools,
+      sizeConfig.dishwash,
+      availableForMeal
+    );
 
     let cleanupGroups = snapshot.cleanupGroups;
     if (window.App.CleanupGroups.needsRegroup(cleanupGroups, activeMembers)) {
@@ -79,8 +96,15 @@ window.App = window.App || {};
     MEAL_KEYS.forEach((meal) => {
       const dishwashIds = washDay.assignments[meal] || [];
       const excludeIds = new Set(dishwashIds.concat(deliveryIds));
-      const otherPool = activeMembers.filter((m) => !excludeIds.has(m.id));
-      const otherAssign = window.App.OtherDuties.assignOtherDuties(otherPool, newDutyCounts, sizeConfig);
+      const otherPool = activeMembers.filter((m) => !excludeIds.has(m.id) && availableForMeal(m.id, meal));
+
+      // 採買的人被抽掉的那兩餐，包便當袋子少一位
+      const mealSizeConfig = Object.assign({}, sizeConfig);
+      if (shopperId != null && SHOPPER_OFF_MEALS.indexOf(meal) !== -1) {
+        mealSizeConfig.lunchbag = Math.max(0, mealSizeConfig.lunchbag - 1);
+      }
+
+      const otherAssign = window.App.OtherDuties.assignOtherDuties(otherPool, newDutyCounts, mealSizeConfig);
 
       meals[meal] = {
         dishwash: dishwashIds,
@@ -92,7 +116,9 @@ window.App = window.App || {};
         floor: otherAssign.floor,
         wipe: otherAssign.wipe,
         delivery: deliveryIds,
-        cleanup: cleanupDay.assignments[meal] || [],
+        cleanup: (cleanupDay.assignments[meal] || []).filter((id) => availableForMeal(id, meal)),
+        // 這一餐人不在（目前只有採買會這樣），顯示時要跟「有空幫忙包便當」區分開
+        absent: activeMembers.filter((m) => !availableForMeal(m.id, meal)).map((m) => m.id),
       };
 
       incrementCounts(newDutyCounts, dishwashIds, "dishwash");
@@ -105,7 +131,12 @@ window.App = window.App || {};
 
     const laundryDay = window.App.Laundry.computeLaundryDay(snapshot.laundryState, snapshot.members, dateStr);
     laundryDay.warnings.forEach((w) => warnings.push(w));
-    const daily = { laundryUp: laundryDay.up, laundryDown: laundryDay.down };
+    const daily = {
+      laundryUp: laundryDay.up,
+      laundryDown: laundryDay.down,
+      shopping: shopperId ? [shopperId] : [],
+    };
+    if (shopperId) incrementCounts(newDutyCounts, [shopperId], "shopping");
     // 抬上來與抬下去是同一組人一天各做一次，合併成一個 laundry 次數統計就夠了
     incrementCounts(newDutyCounts, laundryDay.up, "laundry");
     incrementCounts(newDutyCounts, laundryDay.down, "laundry");
@@ -123,7 +154,7 @@ window.App = window.App || {};
     };
   }
 
-  /** 重播：依日期順序把所有已確定的日期重算一遍，並套用採買調整 */
+  /** 重播：依日期順序把所有已確定的日期重算一遍 */
   function rebuildAll() {
     const state = window.App.State.get();
     window.App.State.clearDerived();
@@ -135,12 +166,8 @@ window.App = window.App || {};
       cleanupGroups: state.cleanupGroups,
       laundryState: state.laundryState,
       dutySizeTable: state.dutySizeTable,
+      shoppingRoster: state.shoppingRoster,
     };
-
-    const shoppingByDate = {};
-    state.shoppingLog.forEach((entry) => {
-      (shoppingByDate[entry.date] = shoppingByDate[entry.date] || []).push(entry);
-    });
 
     const dates = state.committedDates.slice().sort();
     const failed = [];
@@ -163,22 +190,12 @@ window.App = window.App || {};
       running.washState = result.newWashState;
       running.cleanupGroups = result.newCleanupGroups;
       running.laundryState = result.newLaundryState;
-
-      // 當天的採買調整要在推進到下一天之前套用，這樣代理人選才是依當下的次數決定
-      (shoppingByDate[dateStr] || []).forEach((entry) => {
-        window.App.Shopping.applyAdjustment(state.schedules[dateStr], running, entry);
-      });
     });
 
     state.dutyCounts = running.dutyCounts;
     state.washState = running.washState;
     state.cleanupGroups = running.cleanupGroups;
     state.laundryState = running.laundryState;
-
-    // 採買次數不是排班排出來的，直接依 log 統計
-    state.shoppingLog.forEach((entry) => {
-      ensureDutyCounts(state.dutyCounts, entry.memberId).shopping += 1;
-    });
 
     state.committedDates = dates.filter((d) => !failed.some((f) => f.date === d));
     window.App.State.save();
@@ -195,6 +212,7 @@ window.App = window.App || {};
       cleanupGroups: state.cleanupGroups,
       laundryState: state.laundryState,
       dutySizeTable: state.dutySizeTable,
+      shoppingRoster: state.shoppingRoster,
     };
   }
 
@@ -207,17 +225,13 @@ window.App = window.App || {};
     const snapshot = {
       members: state.members,
       dutySizeTable: state.dutySizeTable,
+      shoppingRoster: state.shoppingRoster,
       dutyCounts: {},
       washState: window.App.State.defaultWashState(),
       cleanupGroups: window.App.State.defaultCleanupGroups(),
       laundryState: window.App.State.defaultLaundryState(),
     };
     state.members.forEach((m) => (snapshot.dutyCounts[m.id] = window.App.State.emptyDutyCount()));
-
-    const shoppingByDate = {};
-    state.shoppingLog.forEach((entry) => {
-      (shoppingByDate[entry.date] = shoppingByDate[entry.date] || []).push(entry);
-    });
 
     state.committedDates
       .slice()
@@ -230,10 +244,6 @@ window.App = window.App || {};
         snapshot.washState = result.newWashState;
         snapshot.cleanupGroups = result.newCleanupGroups;
         snapshot.laundryState = result.newLaundryState;
-        const daySchedule = { meals: result.meals, warnings: result.warnings };
-        (shoppingByDate[d] || []).forEach((entry) => {
-          window.App.Shopping.applyAdjustment(daySchedule, snapshot, entry);
-        });
       });
 
     return snapshot;
@@ -282,7 +292,6 @@ window.App = window.App || {};
   function uncommitDay(dateStr) {
     const state = window.App.State.get();
     state.committedDates = state.committedDates.filter((d) => d !== dateStr);
-    state.shoppingLog = state.shoppingLog.filter((e) => e.date !== dateStr);
     rebuildAll();
     return { ok: true };
   }

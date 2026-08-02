@@ -7,8 +7,13 @@ window.App = window.App || {};
   const MEAL_KEYS = window.App.State.MEAL_KEYS;
   const COHORT_ORDER = ["261", "263"];
 
+  /** 固定送便當的兩位不排撤收，所以撤收只在其餘人之間輪 */
+  function cleanupEligible(members) {
+    return members.filter((m) => m.fixedRole !== "delivery");
+  }
+
   function orderedIds(members) {
-    return members
+    return cleanupEligible(members)
       .slice()
       .sort((a, b) => {
         const ca = COHORT_ORDER.indexOf(a.cohort);
@@ -68,5 +73,5 @@ window.App = window.App || {};
     return { assignments, newCleanupGroups };
   }
 
-  window.App.CleanupGroups = { needsRegroup, regroup, computeCleanupDay, orderedIds };
+  window.App.CleanupGroups = { needsRegroup, regroup, computeCleanupDay, orderedIds, cleanupEligible };
 })();

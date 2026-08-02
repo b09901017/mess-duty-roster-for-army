@@ -8,7 +8,7 @@
  *  - Firebase 設定與房間代碼存在「另一個」localStorage key，不會被同步覆蓋，
  *    也不會出現在匯出的備份檔裡。
  *  - 整份 state 以 JSON 字串存成一個欄位（Firestore 不支援巢狀陣列，
- *    而 cleanupGroups.groups 正是陣列包陣列，所以不能直接存物件）。
+ *    直接把整份 state 當物件存會有相容性問題）。
  *  - 用匿名登入，Firestore 規則可以要求 request.auth != null，避免完全公開。
  *  - 衝突處理：最後寫入者為準，畫面上會顯示雲端最後更新時間讓你判斷。
  *  - 沒設定或載不到 Firebase 時完全不影響本機使用。

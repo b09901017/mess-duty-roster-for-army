@@ -14,8 +14,12 @@ window.App.UI = window.App.UI || {};
   "use strict";
 
   const container = () => document.getElementById("tab-dashboard");
-  // 採買是固定的星期輪值，不是靠公平演算法分的，畫成公平圖沒有意義，次數在「採買」分頁看
-  const DUTY_KEYS = window.App.State.DUTY_KEYS.filter((k) => k !== "shopping");
+  /*
+   * 採買是固定的星期輪值，不是靠公平演算法分的，畫成公平圖沒有意義（次數在「採買」分頁看）。
+   * cleanupBreakfast/Lunch/Dinner 是排撤收時內部用來平衡餐別的計數，不用單獨畫圖。
+   */
+  const HIDDEN_FROM_CHARTS = ["shopping", "cleanupBreakfast", "cleanupLunch", "cleanupDinner"];
+  const DUTY_KEYS = window.App.State.DUTY_KEYS.filter((k) => HIDDEN_FROM_CHARTS.indexOf(k) === -1);
 
   // diverging：做最少 → 剛好 → 做最多
   const BUCKETS = [

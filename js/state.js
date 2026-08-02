@@ -13,21 +13,35 @@ window.App = window.App || {};
 
   // 會累計次數、出現在公平性總覽的勤務。
   // 抬便當上車/上樓不列入，因為人選跟包便當袋子完全相同，另外統計只會得到一模一樣的圖。
-  const DUTY_KEYS = ["dishwash", "foodwaste", "lunchbag", "wipe", "floor", "cleanup", "laundry", "shopping"];
+  const DUTY_KEYS = [
+    "dishwash",
+    "foodwaste",
+    "lunchbag",
+    "wipe",
+    "floor",
+    "cleanup",
+    // 撤收再按餐別分開記，用來平衡「誰老是被排到早餐撤收」
+    "cleanupBreakfast",
+    "cleanupLunch",
+    "cleanupDinner",
+    "laundry",
+    "shopping",
+  ];
 
   const MEAL_KEYS = ["breakfast", "lunch", "dinner"];
   const MEAL_LABELS = { breakfast: "早餐", lunch: "中餐", dinner: "晚餐" };
 
-  // 每一餐會列出來的勤務欄位（依顯示順序）
+  // 每一餐會列出來的勤務欄位（依顯示順序）。
+  // 抬上車與抬上樓是同一批人，顯示時合併成一行，所以這裡只放 carry 這個代表欄位。
   const MEAL_DUTY_ROWS = [
     "dishwash",
     "foodwaste",
     "lunchbag",
-    "carryVehicle",
-    "carryUpstairs",
     "wipe",
     "floor",
     "delivery",
+    "carry",
+    "lunchbagHelp",
     "cleanup",
   ];
 
@@ -40,6 +54,8 @@ window.App = window.App || {};
     lunchbag: "包便當袋子",
     carryVehicle: "抬便當上車",
     carryUpstairs: "抬便當上樓",
+    carry: "抬便當上車、上樓",
+    lunchbagHelp: "一起幫忙包便當",
     wipe: "擦桌子",
     floor: "清地板收垃圾",
     delivery: "送便當",
@@ -161,12 +177,13 @@ window.App = window.App || {};
     return { primaryPointer: { 261: 0, 263: 0 }, nextPrimaryCohort: "261" };
   }
 
-  function defaultCleanupGroups() {
-    return { groups: [], rotationOffset: 0, groupedMemberIds: [] };
-  }
-
   function defaultLaundryState() {
     return { lastAssignedId: null, lastDown: [] };
+  }
+
+  /** 採買集合時間（0=週日 … 6=週六），顯示在文字班表上 */
+  function defaultShoppingTimes() {
+    return { 0: "", 1: "0600", 2: "0450", 3: "0600", 4: "0450", 5: "", 6: "" };
   }
 
   /** 固定的採買星期表（0=週日 … 6=週六），可在「採買」分頁修改 */
@@ -192,6 +209,7 @@ window.App = window.App || {};
       members,
       dutySizeTable: defaultDutySizeTable(),
       shoppingRoster: defaultShoppingRoster(),
+      shoppingTimes: defaultShoppingTimes(),
 
       // ── 來源資料（真正被使用者決定的東西）────────────────────────────
       // 已確定紀錄的日期。整個系統的班表都是由名冊、設定與這份清單「重播」推導出來的，
@@ -201,7 +219,6 @@ window.App = window.App || {};
       // ── 推導出來的快取（由 ScheduleEngine.rebuildAll 重算，不要手動改）──
       dutyCounts,
       washState: defaultWashState(),
-      cleanupGroups: defaultCleanupGroups(),
       laundryState: defaultLaundryState(),
       schedules: {},
     };
@@ -224,12 +241,13 @@ window.App = window.App || {};
     const base = defaultState();
     const merged = Object.assign({}, base, parsed, {
       washState: Object.assign({}, base.washState, parsed.washState),
-      cleanupGroups: Object.assign({}, base.cleanupGroups, parsed.cleanupGroups),
       laundryState: Object.assign({}, base.laundryState, parsed.laundryState),
       shoppingRoster: Object.assign({}, base.shoppingRoster, parsed.shoppingRoster),
+      shoppingTimes: Object.assign({}, base.shoppingTimes, parsed.shoppingTimes),
     });
-    // 舊版的「臨時登記採買」已改成固定星期表，殘留欄位不再使用
+    // 舊版的「臨時登記採買」已改成固定星期表；撤收也不再用固定分組
     delete merged.shoppingLog;
+    delete merged.cleanupGroups;
     return merged;
   }
 
@@ -324,7 +342,6 @@ window.App = window.App || {};
     state.members.forEach((m) => (dutyCounts[m.id] = emptyDutyCount()));
     state.dutyCounts = dutyCounts;
     state.washState = defaultWashState();
-    state.cleanupGroups = defaultCleanupGroups();
     state.laundryState = defaultLaundryState();
     state.schedules = {};
   }
@@ -360,7 +377,7 @@ window.App = window.App || {};
     resetRecords,
     clearDerived,
     defaultWashState,
-    defaultCleanupGroups,
+    defaultShoppingTimes,
     defaultLaundryState,
     defaultShoppingRoster,
     onSave,

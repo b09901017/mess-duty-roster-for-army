@@ -35,6 +35,7 @@ window.App.UI = window.App.UI || {};
     const R = window.App.ShoppingRoster;
     const roster = state.shoppingRoster || {};
 
+    const times = state.shoppingTimes || {};
     const rows = DISPLAY_ORDER.map((wd) => {
       const memberId = roster[wd] || "";
       const member = memberId ? window.App.State.memberById(memberId) : null;
@@ -45,6 +46,10 @@ window.App.UI = window.App.UI || {};
           <td data-label="採買人員">
             <select class="shopping-select" data-weekday="${wd}">${memberOptions(memberId)}</select>
             ${retired ? ` <span class="chip chip-inactive">已退伍</span>` : ""}
+          </td>
+          <td data-label="集合時間">
+            <input type="text" class="shopping-time" data-weekday="${wd}" style="width:90px"
+              value="${escapeHtml(times[wd] || "")}" placeholder="例如 0600">
           </td>
         </tr>`;
     }).join("");
@@ -61,13 +66,13 @@ window.App.UI = window.App.UI || {};
       <div class="card">
         <h2>採買星期表</h2>
         <p class="hint">
-          採買是固定的，不用臨時抽。這裡設定每個星期幾由誰去，留空代表那天不用採買。
+          採買是固定的，不用臨時抽。這裡設定每個星期幾由誰去、幾點在安官桌前集合，留空代表那天不用採買。
           <strong>採買的人當天早餐、中餐完全不排勤務（含撤收），晚餐才歸隊</strong>，
           所以那兩餐的包便當袋子會自動少一個人。
         </p>
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>星期</th><th>採買人員</th></tr></thead>
+          <thead><tr><th>星期</th><th>採買人員</th><th>集合時間</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         </div>
@@ -89,22 +94,38 @@ window.App.UI = window.App.UI || {};
     bindEvents();
   }
 
+  function refreshAll() {
+    window.App.ScheduleEngine.rebuildAll();
+    render();
+    if (window.App.UI.Schedule) window.App.UI.Schedule.render();
+    if (window.App.UI.TextSchedule) window.App.UI.TextSchedule.render();
+    if (window.App.UI.Dashboard) window.App.UI.Dashboard.render();
+  }
+
   function bindEvents() {
-    container()
-      .querySelectorAll(".shopping-select")
-      .forEach((sel) => {
-        sel.addEventListener("change", () => {
-          const state = window.App.State.get();
-          state.shoppingRoster = Object.assign({}, state.shoppingRoster, {
-            [sel.dataset.weekday]: sel.value || null,
-          });
-          window.App.ScheduleEngine.rebuildAll();
-          render();
-          if (window.App.UI.Schedule) window.App.UI.Schedule.render();
-          if (window.App.UI.TextSchedule) window.App.UI.TextSchedule.render();
-          if (window.App.UI.Dashboard) window.App.UI.Dashboard.render();
+    const root = container();
+
+    root.querySelectorAll(".shopping-select").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        const state = window.App.State.get();
+        state.shoppingRoster = Object.assign({}, state.shoppingRoster, {
+          [sel.dataset.weekday]: sel.value || null,
         });
+        refreshAll();
       });
+    });
+
+    // 集合時間只影響文字輸出，不影響排班，所以不用重播整份班表
+    root.querySelectorAll(".shopping-time").forEach((input) => {
+      input.addEventListener("change", () => {
+        const state = window.App.State.get();
+        state.shoppingTimes = Object.assign({}, state.shoppingTimes, {
+          [input.dataset.weekday]: input.value.trim(),
+        });
+        window.App.State.save();
+        if (window.App.UI.TextSchedule) window.App.UI.TextSchedule.render();
+      });
+    });
   }
 
   window.App.UI.Shopping = { render };

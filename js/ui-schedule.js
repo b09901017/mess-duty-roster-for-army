@@ -28,15 +28,12 @@ window.App.UI = window.App.UI || {};
   }
 
   function mealCard(mealKey, mealData, activeMembers) {
-    const helpers = window.App.DutyView.lunchbagHelpers(mealData, activeMembers);
     return `
       <div class="meal-card">
         <h3>${window.App.State.MEAL_LABELS[mealKey]}</h3>
-        ${window.App.State.MEAL_DUTY_ROWS.map((duty) => dutyLine(duty, mealData[duty])).join("")}
-        <div class="duty-line">
-          <span class="duty-label">🤝 一起幫忙包便當</span>
-          <span class="duty-names">${namesOrDash(helpers)}</span>
-        </div>
+        ${window.App.State.MEAL_DUTY_ROWS.map((rowKey) =>
+          dutyLine(rowKey, window.App.DutyView.mealRowIds(mealData, rowKey, activeMembers))
+        ).join("")}
       </div>`;
   }
 

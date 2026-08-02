@@ -1,4 +1,4 @@
-/* 文字班表：適合直接複製貼到群組的純文字版面（依餐別／依個人） */
+/* 文字班表：適合直接複製貼到群組的純文字版面（依餐別／依個人），不含任何 emoji */
 window.App = window.App || {};
 window.App.UI = window.App.UI || {};
 
@@ -37,10 +37,18 @@ window.App.UI = window.App.UI || {};
     });
   }
 
+  /** 採買集合時間，例如「0600 安官桌前集合」 */
+  function shoppingNote(dateStr) {
+    const state = window.App.State.get();
+    const weekday = window.App.ShoppingRoster.weekdayOf(dateStr);
+    const time = (state.shoppingTimes || {})[weekday];
+    return time ? `${time} 安官桌前集合` : "";
+  }
+
   function buildMealText(dateStr, schedule, displayNames) {
     const S = window.App.State;
-    const nameList = (ids) => (ids && ids.length ? ids.map((id) => displayNames[id] || id).join("、") : "－");
     const active = activeSorted(dateStr);
+    const nameList = (ids) => (ids && ids.length ? ids.map((id) => displayNames[id] || id).join("、") : "無");
 
     const lines = [];
     lines.push(`${formatDateHeader(dateStr)} 勤務班表`);
@@ -49,19 +57,22 @@ window.App.UI = window.App.UI || {};
       const mealData = schedule.meals[mealKey];
       lines.push("");
       lines.push(`【${S.MEAL_LABELS[mealKey]}】`);
-      S.MEAL_DUTY_ROWS.forEach((duty) => {
-        lines.push(`${S.DUTY_LABELS[duty]}：${nameList(mealData[duty])}`);
+      S.MEAL_DUTY_ROWS.forEach((rowKey) => {
+        const ids = window.App.DutyView.mealRowIds(mealData, rowKey, active);
+        lines.push(`${S.DUTY_LABELS[rowKey]}：${nameList(ids)}`);
       });
-      const helpers = window.App.DutyView.lunchbagHelpers(mealData, active);
-      lines.push(`一起幫忙包便當：${nameList(helpers)}`);
     });
 
     const daily = schedule.daily || {};
-    if ((daily.laundryUp || []).length || (daily.laundryDown || []).length) {
+    const hasDaily = S.DAILY_DUTY_ROWS.some((k) => (daily[k] || []).length);
+    if (hasDaily) {
       lines.push("");
       lines.push("【全日】");
-      S.DAILY_DUTY_ROWS.forEach((duty) => {
-        lines.push(`${S.DUTY_LABELS[duty]}：${nameList(daily[duty])}`);
+      S.DAILY_DUTY_ROWS.forEach((rowKey) => {
+        const ids = daily[rowKey] || [];
+        if (!ids.length) return;
+        const suffix = rowKey === "shopping" && shoppingNote(dateStr) ? `（${shoppingNote(dateStr)}）` : "";
+        lines.push(`${S.DUTY_LABELS[rowKey]}：${nameList(ids)}${suffix}`);
       });
     }
 
@@ -71,29 +82,44 @@ window.App.UI = window.App.UI || {};
   function buildPersonText(dateStr, schedule, displayNames) {
     const S = window.App.State;
     const lines = [];
-    lines.push(`${formatDateHeader(dateStr)} 個人勤務總覽`);
+    lines.push(`${formatDateHeader(dateStr)} 個人勤務`);
 
+    const byCohort = {};
     activeSorted(dateStr).forEach((m) => {
-      const parts = S.MEAL_KEYS.map((mealKey) => {
-        const labels = window.App.DutyView.mealDutyLabels(schedule.meals[mealKey], m.id);
-        return `${S.MEAL_LABELS[mealKey]} ${labels.length ? labels.join("／") : "休息"}`;
-      });
-      const dailyLabels = window.App.DutyView.dailyDutyLabels(schedule.daily, m.id);
-      if (dailyLabels.length) parts.push(dailyLabels.join("／"));
-      lines.push(`[${m.cohort}] ${displayNames[m.id]}：${parts.join("　")}`);
+      (byCohort[m.cohort] = byCohort[m.cohort] || []).push(m);
     });
+
+    Object.keys(byCohort)
+      .sort()
+      .forEach((cohort) => {
+        lines.push("");
+        lines.push(`〔${cohort} 梯〕`);
+        byCohort[cohort].forEach((m) => {
+          lines.push("");
+          lines.push(displayNames[m.id]);
+          S.MEAL_KEYS.forEach((mealKey) => {
+            const labels = window.App.DutyView.mealDutyLabels(schedule.meals[mealKey], m.id);
+            lines.push(`  ${S.MEAL_LABELS[mealKey].slice(0, 1)}：${labels.length ? labels.join("、") : "休息"}`);
+          });
+          const dailyLabels = window.App.DutyView.dailyDutyLabels(schedule.daily, m.id);
+          if (dailyLabels.length) lines.push(`  另：${dailyLabels.join("、")}`);
+          const note = ((schedule.daily || {}).shopping || []).includes(m.id) ? shoppingNote(dateStr) : "";
+          if (note) lines.push(`  採買：${note}`);
+        });
+      });
 
     return lines.join("\n");
   }
 
-  function copyBlock(id, label) {
+  function copyBlock(id, label, hint) {
     return `
       <div class="card">
         <div class="row" style="justify-content:space-between">
           <h2 style="margin:0">${label}</h2>
-          <button type="button" class="primary copy-btn" data-target="${id}">📋 複製</button>
+          <button type="button" class="primary copy-btn" data-target="${id}">複製</button>
         </div>
-        <textarea id="${id}" class="text-schedule-area" readonly rows="16"></textarea>
+        <p class="hint">${hint}</p>
+        <textarea id="${id}" class="text-schedule-area" readonly rows="18"></textarea>
       </div>`;
   }
 
@@ -110,17 +136,15 @@ window.App.UI = window.App.UI || {};
     }
 
     const displayNames = buildDisplayNameMap();
-    const mealText = buildMealText(date, schedule, displayNames);
-    const personText = buildPersonText(date, schedule, displayNames);
 
     container().innerHTML = `
-      ${!committed ? `<div class="hint">👀 目前顯示的是尚未確定紀錄的預覽內容。</div>` : ""}
-      ${copyBlock("meal-text-area", "🍚 依餐別")}
-      ${copyBlock("person-text-area", "🙋 依個人")}
+      ${!committed ? `<div class="hint">目前顯示的是尚未確定紀錄的預覽內容。</div>` : ""}
+      ${copyBlock("meal-text-area", "依餐別", "每一餐誰做什麼，適合值星自己對照確認。")}
+      ${copyBlock("person-text-area", "依個人", "每個人一整天的分工，適合貼到群組讓大家找自己的名字。")}
     `;
 
-    container().querySelector("#meal-text-area").value = mealText;
-    container().querySelector("#person-text-area").value = personText;
+    container().querySelector("#meal-text-area").value = buildMealText(date, schedule, displayNames);
+    container().querySelector("#person-text-area").value = buildPersonText(date, schedule, displayNames);
 
     bindEvents();
   }
@@ -150,7 +174,7 @@ window.App.UI = window.App.UI || {};
             }
           }
           const original = btn.textContent;
-          btn.textContent = copied ? "✅ 已複製" : "請手動選取複製";
+          btn.textContent = copied ? "已複製" : "請手動選取複製";
           setTimeout(() => (btn.textContent = original), 1500);
         });
       });

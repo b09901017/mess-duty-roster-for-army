@@ -35,7 +35,7 @@ window.App = window.App || {};
   /**
    * 純計算：不會修改任何全域狀態，只根據傳入的 snapshot 算出這一天的班表。
    * @param {string} dateStr
-   * @param {{members, dutyCounts, washState, cleanupGroups, laundryState, dutySizeTable, shoppingRoster}} snapshot
+   * @param {{members, dutyCounts, washState, laundryState, dutySizeTable, shoppingRoster}} snapshot
    */
   function computeDay(dateStr, snapshot) {
     const activeMembers = snapshot.members.filter((m) => window.App.State.isActiveOn(m, dateStr));
@@ -84,12 +84,11 @@ window.App = window.App || {};
       availableForMeal
     );
 
-    let cleanupGroups = snapshot.cleanupGroups;
-    if (window.App.CleanupGroups.needsRegroup(cleanupGroups, activeMembers)) {
-      cleanupGroups = window.App.CleanupGroups.regroup(activeMembers);
-      warnings.push("人員名單有變動，撤收分組已自動重新平均分配，請至「名冊管理」確認/微調分組。");
-    }
-    const cleanupDay = window.App.CleanupGroups.computeCleanupDay(cleanupGroups);
+    const cleanupDay = window.App.CleanupSchedule.computeCleanupDay(
+      activeMembers,
+      snapshot.dutyCounts,
+      availableForMeal
+    );
 
     const newDutyCounts = cloneDutyCounts(snapshot.dutyCounts);
     const meals = {};
@@ -106,13 +105,18 @@ window.App = window.App || {};
 
       const otherAssign = window.App.OtherDuties.assignOtherDuties(otherPool, newDutyCounts, mealSizeConfig);
 
+      // 抬便當上車、上樓：除了洗碗的人以外，當餐在場的人全部一起幫忙
+      const dishwashSet = new Set(dishwashIds);
+      const carryIds = activeMembers
+        .filter((m) => availableForMeal(m.id, meal) && !dishwashSet.has(m.id))
+        .map((m) => m.id);
+
       meals[meal] = {
         dishwash: dishwashIds,
         foodwaste: otherAssign.foodwaste,
         lunchbag: otherAssign.lunchbag,
-        // 抬便當上車/上樓的人就是包便當袋子的那幾位，不另外排
-        carryVehicle: otherAssign.lunchbag.slice(),
-        carryUpstairs: otherAssign.lunchbag.slice(),
+        carryVehicle: carryIds.slice(),
+        carryUpstairs: carryIds.slice(),
         floor: otherAssign.floor,
         wipe: otherAssign.wipe,
         delivery: deliveryIds,
@@ -127,6 +131,7 @@ window.App = window.App || {};
       incrementCounts(newDutyCounts, otherAssign.floor, "floor");
       incrementCounts(newDutyCounts, otherAssign.wipe, "wipe");
       incrementCounts(newDutyCounts, meals[meal].cleanup, "cleanup");
+      incrementCounts(newDutyCounts, meals[meal].cleanup, window.App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]);
     });
 
     const laundryDay = window.App.Laundry.computeLaundryDay(snapshot.laundryState, snapshot.members, dateStr);
@@ -148,7 +153,6 @@ window.App = window.App || {};
       warnings,
       sizeConfig,
       newWashState: washDay.newWashState,
-      newCleanupGroups: cleanupDay.newCleanupGroups,
       newLaundryState: laundryDay.newLaundryState,
       newDutyCounts,
     };
@@ -163,7 +167,6 @@ window.App = window.App || {};
       members: state.members,
       dutyCounts: state.dutyCounts,
       washState: state.washState,
-      cleanupGroups: state.cleanupGroups,
       laundryState: state.laundryState,
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
@@ -188,13 +191,11 @@ window.App = window.App || {};
 
       running.dutyCounts = result.newDutyCounts;
       running.washState = result.newWashState;
-      running.cleanupGroups = result.newCleanupGroups;
       running.laundryState = result.newLaundryState;
     });
 
     state.dutyCounts = running.dutyCounts;
     state.washState = running.washState;
-    state.cleanupGroups = running.cleanupGroups;
     state.laundryState = running.laundryState;
 
     state.committedDates = dates.filter((d) => !failed.some((f) => f.date === d));
@@ -209,7 +210,6 @@ window.App = window.App || {};
       members: state.members,
       dutyCounts: state.dutyCounts,
       washState: state.washState,
-      cleanupGroups: state.cleanupGroups,
       laundryState: state.laundryState,
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
@@ -228,7 +228,6 @@ window.App = window.App || {};
       shoppingRoster: state.shoppingRoster,
       dutyCounts: {},
       washState: window.App.State.defaultWashState(),
-      cleanupGroups: window.App.State.defaultCleanupGroups(),
       laundryState: window.App.State.defaultLaundryState(),
     };
     state.members.forEach((m) => (snapshot.dutyCounts[m.id] = window.App.State.emptyDutyCount()));
@@ -242,7 +241,6 @@ window.App = window.App || {};
         if (!result.ok) return;
         snapshot.dutyCounts = result.newDutyCounts;
         snapshot.washState = result.newWashState;
-        snapshot.cleanupGroups = result.newCleanupGroups;
         snapshot.laundryState = result.newLaundryState;
       });
 

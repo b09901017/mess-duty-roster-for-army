@@ -20,11 +20,11 @@ window.App.UI = window.App.UI || {};
       const sel = m.id === selectedId ? " selected" : "";
       opts.push(`<option value="${m.id}"${sel}>${escapeHtml(`${m.cohort}-${m.seq} ${m.name}`)}</option>`);
     });
-    // 已退伍但仍被指派的人也要出現在選單裡，否則畫面看起來像沒設定
+    // 已離開但仍被指派的人也要出現在選單裡，否則畫面看起來像沒設定
     if (selectedId && !active.some((m) => m.id === selectedId)) {
       const m = window.App.State.memberById(selectedId);
       if (m) {
-        opts.push(`<option value="${m.id}" selected>${escapeHtml(`${m.cohort}-${m.seq} ${m.name}`)}（已退伍）</option>`);
+        opts.push(`<option value="${m.id}" selected>${escapeHtml(`${m.cohort}-${m.seq} ${m.name}`)}（已離開）</option>`);
       }
     }
     return opts.join("");
@@ -45,7 +45,7 @@ window.App.UI = window.App.UI || {};
           <td data-label="星期">${R.WEEKDAY_LABELS[wd]}</td>
           <td data-label="採買人員">
             <select class="shopping-select" data-weekday="${wd}">${memberOptions(memberId)}</select>
-            ${retired ? ` <span class="chip chip-inactive">已退伍</span>` : ""}
+            ${retired ? ` <span class="chip chip-inactive">已離開</span>` : ""}
           </td>
           <td data-label="集合時間">
             <input type="text" class="shopping-time" data-weekday="${wd}" style="width:90px"
@@ -70,6 +70,15 @@ window.App.UI = window.App.UI || {};
           <strong>採買的人當天早餐、中餐完全不排勤務（含撤收），晚餐才歸隊</strong>，
           所以那兩餐的包便當袋子會自動少一個人。
         </p>
+        <label class="field">
+          <span>採買到哪一天為止（含當天）——之後就不用採買了，留空代表一直都要</span>
+          <input type="date" id="shopping-until" value="${escapeHtml(state.shoppingUntil || "")}">
+        </label>
+        ${
+          state.shoppingUntil
+            ? `<div class="hint">目前設定：${state.shoppingUntil} 之後都不排採買。</div>`
+            : ""
+        }
         <div class="table-scroll">
         <table class="responsive-table">
           <thead><tr><th>星期</th><th>採買人員</th><th>集合時間</th></tr></thead>
@@ -78,7 +87,7 @@ window.App.UI = window.App.UI || {};
         </div>
         <p class="hint" style="margin-top:12px">
           改完之後所有已確定的班表會自動重算，不用手動重排。
-          如果指定的人在某天已經退伍，產生那天班表時會跳提醒。
+          如果指定的人在某天已經不在打飯班，產生那天班表時會跳提醒。
         </p>
       </div>
 
@@ -114,6 +123,14 @@ window.App.UI = window.App.UI || {};
         refreshAll();
       });
     });
+
+    const untilInput = root.querySelector("#shopping-until");
+    if (untilInput) {
+      untilInput.addEventListener("change", () => {
+        window.App.State.get().shoppingUntil = untilInput.value || null;
+        refreshAll();
+      });
+    }
 
     // 集合時間只影響文字輸出，不影響排班，所以不用重播整份班表
     root.querySelectorAll(".shopping-time").forEach((input) => {

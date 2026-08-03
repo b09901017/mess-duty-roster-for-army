@@ -8,7 +8,7 @@ window.App = window.App || {};
 
   // 名冊種子每次異動就 +1。舊資料（含從雲端還原的）rosterVersion 對不上時，
   // 會自動換上新名冊，這樣改名冊不用叫使用者清快取，也不會被雲端的舊名冊蓋回去。
-  const ROSTER_VERSION = 2;
+  const ROSTER_VERSION = 3;
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
@@ -117,44 +117,50 @@ window.App = window.App || {};
     return new Date().toISOString().slice(0, 10);
   }
 
-  // 2026/08/04 這天有一波人員異動：三位離開、261 加入五位新人。
-  // 新人 joinDate 設在 8/4，離開的人 dischargeDate 也設 8/4
-  //（依「退伍當天做到中午」的規則，他們 8/4 早、中還在，晚上才離營）。
+  // 2026/08/04 這天有一波人員異動：三位退出打飯班、261 加入五位新人。
   const CHANGE_DATE = "2026-08-04";
 
+  /*
+   * 離開的方式有兩種，對「最後一天」的處理不一樣：
+   *   afterLunch（退伍）：當天早餐、中餐照排，晚上才離營。
+   *   immediate（退出打飯班／調離）：當天早上就不在了，整天都不排。
+   */
+  const LEAVE_AFTER_LUNCH = "afterLunch";
+  const LEAVE_IMMEDIATE = "immediate";
+
   function seedMembers() {
-    // [姓名, 退伍日, 加入日]
+    // [姓名, 離開日, 離開方式, 加入日]
     const r261 = [
-      ["李愷宸", CHANGE_DATE, null],
-      ["江偉綸", "2026-08-04", null],
-      ["陳柏翰", "2026-08-14", null],
-      ["鄧旭辰", "2026-08-08", null],
-      ["廖翊滕", "2026-08-10", null],
-      ["陳俊穎", "2026-08-13", null],
-      ["林柏宇", "2026-08-14", null],
-      ["林崇浩", "2026-08-13", null],
-      // 8/4 加入的五位新人：不排抬洗衣籃，也不排晚上的撤收
-      ["丁楚祐", null, CHANGE_DATE],
-      ["蔣許子宸", null, CHANGE_DATE],
-      ["文軍諺", null, CHANGE_DATE],
-      ["王傑立", null, CHANGE_DATE],
-      ["簡宏穎", null, CHANGE_DATE],
+      ["李愷宸", CHANGE_DATE, LEAVE_IMMEDIATE, null], // 退出打飯班，8/4 早上起就不在
+      ["江偉綸", "2026-08-04", LEAVE_AFTER_LUNCH, null],
+      ["陳柏翰", "2026-08-14", LEAVE_AFTER_LUNCH, null],
+      ["鄧旭辰", "2026-08-08", LEAVE_AFTER_LUNCH, null],
+      ["廖翊滕", "2026-08-10", LEAVE_AFTER_LUNCH, null],
+      ["陳俊穎", "2026-08-13", LEAVE_AFTER_LUNCH, null],
+      ["林柏宇", "2026-08-14", LEAVE_AFTER_LUNCH, null],
+      ["林崇浩", "2026-08-13", LEAVE_AFTER_LUNCH, null],
+      // 8/4 早上報到的五位新人：不排抬洗衣籃，也不排晚上的撤收
+      ["丁楚祐", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
+      ["蔣許子宸", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
+      ["文軍諺", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
+      ["王傑立", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
+      ["簡宏穎", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
     ];
     const r263 = [
-      ["陳東霖", null],
-      ["呂胤玄", null],
-      ["林柏翰", null],
-      ["曹月輝", null],
-      ["黃聖為", null],
-      ["李易宸", CHANGE_DATE],
-      ["顏允彣", null],
-      ["呂承鴻", null],
-      ["盧明煬", CHANGE_DATE],
-      ["田權楨", null],
+      ["陳東霖", null, LEAVE_AFTER_LUNCH],
+      ["呂胤玄", null, LEAVE_AFTER_LUNCH],
+      ["林柏翰", null, LEAVE_AFTER_LUNCH],
+      ["曹月輝", null, LEAVE_AFTER_LUNCH],
+      ["黃聖為", null, LEAVE_AFTER_LUNCH],
+      ["李易宸", CHANGE_DATE, LEAVE_IMMEDIATE], // 退出打飯班
+      ["顏允彣", null, LEAVE_AFTER_LUNCH],
+      ["呂承鴻", null, LEAVE_AFTER_LUNCH],
+      ["盧明煬", CHANGE_DATE, LEAVE_IMMEDIATE], // 退出打飯班
+      ["田權楨", null, LEAVE_AFTER_LUNCH],
     ];
 
     const members = [];
-    r261.forEach(([name, dischargeDate, joinDate], idx) => {
+    r261.forEach(([name, dischargeDate, leaveMode, joinDate], idx) => {
       const seq = idx + 1;
       const isNewcomer = !!joinDate;
       members.push({
@@ -164,12 +170,13 @@ window.App = window.App || {};
         seq,
         joinDate: joinDate || null,
         dischargeDate: dischargeDate || null,
+        leaveMode: leaveMode,
         fixedRole: seq === 7 || seq === 8 ? "delivery" : null,
         skipLaundry: isNewcomer,
         skipDinnerCleanup: isNewcomer,
       });
     });
-    r263.forEach(([name, dischargeDate], idx) => {
+    r263.forEach(([name, dischargeDate, leaveMode], idx) => {
       const seq = idx + 1;
       members.push({
         id: `263-${seq}`,
@@ -178,6 +185,7 @@ window.App = window.App || {};
         seq,
         joinDate: null,
         dischargeDate: dischargeDate || null,
+        leaveMode: leaveMode,
         fixedRole: null,
         skipLaundry: false,
         skipDinnerCleanup: false,
@@ -210,6 +218,9 @@ window.App = window.App || {};
     return { lastAssignedId: null, lastDown: [] };
   }
 
+  // 採買只做到這一天為止（含）。之後就不用採買了，留空代表沒有結束日。
+  const DEFAULT_SHOPPING_UNTIL = "2026-08-04";
+
   /** 採買集合時間（0=週日 … 6=週六），顯示在文字班表上 */
   function defaultShoppingTimes() {
     return { 0: "", 1: "0600", 2: "0450", 3: "0600", 4: "0450", 5: "", 6: "" };
@@ -240,6 +251,7 @@ window.App = window.App || {};
       dutySizeTable: defaultDutySizeTable(),
       shoppingRoster: defaultShoppingRoster(),
       shoppingTimes: defaultShoppingTimes(),
+      shoppingUntil: DEFAULT_SHOPPING_UNTIL,
 
       // ── 來源資料（真正被使用者決定的東西）────────────────────────────
       // 已確定紀錄的日期。整個系統的班表都是由名冊、設定與這份清單「重播」推導出來的，
@@ -279,9 +291,10 @@ window.App = window.App || {};
     delete merged.shoppingLog;
     delete merged.cleanupGroups;
 
-    // 名冊有改版就換上新名冊（已排好的日期會依新名冊重播，不會遺失）
+    // 名冊有改版就換上新名冊與採買設定（已排好的日期會依新設定重播，不會遺失）
     if (parsed.rosterVersion !== ROSTER_VERSION) {
       merged.members = base.members;
+      merged.shoppingUntil = base.shoppingUntil;
       merged.rosterVersion = ROSTER_VERSION;
     }
     return merged;
@@ -342,6 +355,8 @@ window.App = window.App || {};
     if (!member.dischargeDate) return true;
     if (dateStr < member.dischargeDate) return true;
     if (dateStr > member.dischargeDate) return false;
+    // 離開當天：退出打飯班的人早上就不在了；退伍的人做到中午
+    if (member.leaveMode === LEAVE_IMMEDIATE) return false;
     return meal ? meal === "breakfast" || meal === "lunch" : true;
   }
 
@@ -398,6 +413,8 @@ window.App = window.App || {};
     DUTY_PERIOD_START,
     DUTY_PERIOD_END,
     LAUNDRY_START,
+    LEAVE_AFTER_LUNCH,
+    LEAVE_IMMEDIATE,
     DUTY_KEYS,
     MEAL_KEYS,
     MEAL_LABELS,

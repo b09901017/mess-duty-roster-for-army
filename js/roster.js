@@ -21,6 +21,7 @@ window.App = window.App || {};
       seq,
       joinDate: null,
       dischargeDate: null,
+      leaveMode: window.App.State.LEAVE_AFTER_LUNCH,
       fixedRole: null,
       skipLaundry: false,
       skipDinnerCleanup: false,

@@ -43,7 +43,12 @@ window.App = window.App || {};
     const dayMembers = snapshot.members.filter((m) => St.isActiveOn(m, dateStr));
     const warnings = [];
 
-    const shopper = window.App.ShoppingRoster.shopperFor(dateStr, snapshot.members, snapshot.shoppingRoster);
+    const shopper = window.App.ShoppingRoster.shopperFor(
+      dateStr,
+      snapshot.members,
+      snapshot.shoppingRoster,
+      snapshot.shoppingUntil
+    );
     if (shopper.warning) warnings.push(shopper.warning);
     const shopperId = shopper.memberId;
     const SHOPPER_OFF_MEALS = ["breakfast", "lunch"];
@@ -184,6 +189,7 @@ window.App = window.App || {};
       laundryState: state.laundryState,
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
+      shoppingUntil: state.shoppingUntil,
     };
 
     const dates = state.committedDates.slice().sort();
@@ -227,6 +233,7 @@ window.App = window.App || {};
       laundryState: state.laundryState,
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
+      shoppingUntil: state.shoppingUntil,
     };
   }
 
@@ -240,6 +247,7 @@ window.App = window.App || {};
       members: state.members,
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
+      shoppingUntil: state.shoppingUntil,
       dutyCounts: {},
       washState: window.App.State.defaultWashState(),
       laundryState: window.App.State.defaultLaundryState(),

@@ -12,10 +12,14 @@ window.App.UI = window.App.UI || {};
   }
 
   function memberRow(m, today) {
-    const isActive = window.App.State.isActiveOn(m, today);
+    const St = window.App.State;
+    const isActive = St.isActiveOn(m, today);
+    const notYet = m.joinDate && today < m.joinDate;
     const statusChip = isActive
-      ? `<span class="chip chip-${m.cohort}">現役</span>`
-      : `<span class="chip chip-inactive">已退伍</span>`;
+      ? `<span class="chip chip-${m.cohort}">在班</span>`
+      : notYet
+      ? `<span class="chip chip-inactive">尚未報到</span>`
+      : `<span class="chip chip-inactive">已離開</span>`;
     const deliveryBadge = m.fixedRole === "delivery" ? ' <span class="chip chip-inactive">🛵固定送便當</span>' : "";
     return `
       <tr data-id="${m.id}">
@@ -27,8 +31,16 @@ window.App.UI = window.App.UI || {};
         <td data-label="加入日期">
           <input type="date" class="join-date-input" data-id="${m.id}" value="${m.joinDate || ""}">
         </td>
-        <td data-label="退伍日期">
+        <td data-label="離開日期">
           <input type="date" class="discharge-date-input" data-id="${m.id}" value="${m.dischargeDate || ""}">
+          <select class="leave-mode-select" data-id="${m.id}">
+            <option value="${St.LEAVE_AFTER_LUNCH}"${
+              m.leaveMode !== St.LEAVE_IMMEDIATE ? " selected" : ""
+            }>退伍（當天做到中午）</option>
+            <option value="${St.LEAVE_IMMEDIATE}"${
+              m.leaveMode === St.LEAVE_IMMEDIATE ? " selected" : ""
+            }>退出（當天就不排）</option>
+          </select>
         </td>
         <td data-label="狀態">${statusChip}</td>
         <td data-label="免排">
@@ -82,13 +94,14 @@ window.App.UI = window.App.UI || {};
       <div class="card">
         <h2>261 梯 (${activeCount261} 現役 / ${members261.length} 總數)</h2>
         <p class="hint">
-          加入日期留空＝一開始就在；退伍日期留空＝還沒退。<strong>退伍當天早餐、中餐照排，晚上才離營</strong>。
-          「免排」可以個別勾掉抬洗衣籃與晚上的撤收（新報到的五位預設都勾起來）。
+          加入日期留空＝一開始就在；離開日期留空＝還在班。離開方式分兩種：
+          <strong>退伍</strong>＝當天早餐、中餐照排、晚上才離營；<strong>退出</strong>（退出打飯班、調離）＝當天早上就不排了。
+          「免排」可以個別勾掉抬洗衣籃與晚上的撤收（8/4 報到的五位預設都勾起來）。
           日期都可以先預填未來的，方便一次排完整個梯期。
         </p>
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>退伍日期</th><th>狀態</th><th>免排</th><th>操作</th></tr></thead>
+          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>操作</th></tr></thead>
           <tbody>${members261.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
@@ -98,7 +111,7 @@ window.App.UI = window.App.UI || {};
         <h2>263 梯 (${activeCount263} 現役 / ${members263.length} 總數)</h2>
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>退伍日期</th><th>狀態</th><th>免排</th><th>操作</th></tr></thead>
+          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>操作</th></tr></thead>
           <tbody>${members263.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
@@ -160,6 +173,15 @@ window.App.UI = window.App.UI || {};
     root.querySelectorAll(".skip-dinner-cleanup").forEach((box) => {
       box.addEventListener("change", () => {
         window.App.Roster.updateMember(box.dataset.id, { skipDinnerCleanup: box.checked });
+        window.App.ScheduleEngine.rebuildAll();
+        render();
+        rerenderAll();
+      });
+    });
+
+    root.querySelectorAll(".leave-mode-select").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        window.App.Roster.updateMember(sel.dataset.id, { leaveMode: sel.value });
         window.App.ScheduleEngine.rebuildAll();
         render();
         rerenderAll();

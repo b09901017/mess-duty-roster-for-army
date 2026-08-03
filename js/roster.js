@@ -19,8 +19,11 @@ window.App = window.App || {};
       name: name || `${cohort}-${seq}號`,
       cohort,
       seq,
+      joinDate: null,
       dischargeDate: null,
       fixedRole: null,
+      skipLaundry: false,
+      skipDinnerCleanup: false,
     });
     state.dutyCounts[id] = window.App.State.emptyDutyCount();
     window.App.State.save();

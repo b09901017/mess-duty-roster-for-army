@@ -42,7 +42,8 @@ window.App.UI = window.App.UI || {};
    */
   function eligibleFor(dutyKey, members) {
     if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
-    if (dutyKey === "laundry") return members;
+    // 洗衣籃是全員一起輪，但名冊上勾「免排洗衣籃」的人不算
+    if (dutyKey === "laundry") return members.filter((m) => !m.skipLaundry);
     return members.filter((m) => m.fixedRole !== "delivery");
   }
 

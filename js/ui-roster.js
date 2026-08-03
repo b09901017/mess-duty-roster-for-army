@@ -24,10 +24,21 @@ window.App.UI = window.App.UI || {};
           <input type="text" class="member-name-input" value="${escapeAttr(m.name)}" data-id="${m.id}">
           ${deliveryBadge}
         </td>
+        <td data-label="加入日期">
+          <input type="date" class="join-date-input" data-id="${m.id}" value="${m.joinDate || ""}">
+        </td>
         <td data-label="退伍日期">
           <input type="date" class="discharge-date-input" data-id="${m.id}" value="${m.dischargeDate || ""}">
         </td>
         <td data-label="狀態">${statusChip}</td>
+        <td data-label="免排">
+          <label class="tick"><input type="checkbox" class="skip-laundry" data-id="${m.id}" ${
+            m.skipLaundry ? "checked" : ""
+          }> 洗衣籃</label>
+          <label class="tick"><input type="checkbox" class="skip-dinner-cleanup" data-id="${m.id}" ${
+            m.skipDinnerCleanup ? "checked" : ""
+          }> 晚上撤收</label>
+        </td>
         <td data-label="操作">
           <button type="button" class="set-delivery-btn" data-id="${m.id}">${
             m.fixedRole === "delivery" ? "取消送便當" : "設為送便當"
@@ -70,10 +81,14 @@ window.App.UI = window.App.UI || {};
 
       <div class="card">
         <h2>261 梯 (${activeCount261} 現役 / ${members261.length} 總數)</h2>
-        <p class="hint">退伍日期留空＝現役，填日期後從當天起自動不排勤務（可先預填未來日期，方便提前排好整個梯期的班表）。</p>
+        <p class="hint">
+          加入日期留空＝一開始就在；退伍日期留空＝還沒退。<strong>退伍當天早餐、中餐照排，晚上才離營</strong>。
+          「免排」可以個別勾掉抬洗衣籃與晚上的撤收（新報到的五位預設都勾起來）。
+          日期都可以先預填未來的，方便一次排完整個梯期。
+        </p>
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>退伍日期</th><th>狀態</th><th>操作</th></tr></thead>
+          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>退伍日期</th><th>狀態</th><th>免排</th><th>操作</th></tr></thead>
           <tbody>${members261.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
@@ -83,7 +98,7 @@ window.App.UI = window.App.UI || {};
         <h2>263 梯 (${activeCount263} 現役 / ${members263.length} 總數)</h2>
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>退伍日期</th><th>狀態</th><th>操作</th></tr></thead>
+          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>退伍日期</th><th>狀態</th><th>免排</th><th>操作</th></tr></thead>
           <tbody>${members263.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
@@ -100,7 +115,7 @@ window.App.UI = window.App.UI || {};
   }
 
   function emptyRow() {
-    return `<tr><td colspan="5" class="empty-state">尚無人員</td></tr>`;
+    return `<tr><td colspan="7" class="empty-state">尚無人員</td></tr>`;
   }
 
   function bindEvents() {
@@ -124,14 +139,42 @@ window.App.UI = window.App.UI || {};
       });
     });
 
+    root.querySelectorAll(".join-date-input").forEach((input) => {
+      input.addEventListener("change", () => {
+        window.App.Roster.updateMember(input.dataset.id, { joinDate: input.value || null });
+        window.App.ScheduleEngine.rebuildAll();
+        render();
+        rerenderAll();
+      });
+    });
+
+    root.querySelectorAll(".skip-laundry").forEach((box) => {
+      box.addEventListener("change", () => {
+        window.App.Roster.updateMember(box.dataset.id, { skipLaundry: box.checked });
+        window.App.ScheduleEngine.rebuildAll();
+        render();
+        rerenderAll();
+      });
+    });
+
+    root.querySelectorAll(".skip-dinner-cleanup").forEach((box) => {
+      box.addEventListener("change", () => {
+        window.App.Roster.updateMember(box.dataset.id, { skipDinnerCleanup: box.checked });
+        window.App.ScheduleEngine.rebuildAll();
+        render();
+        rerenderAll();
+      });
+    });
+
     root.querySelectorAll(".discharge-date-input").forEach((input) => {
       input.addEventListener("change", () => {
         const result = window.App.Roster.setDischargeDate(input.dataset.id, input.value || null);
         if (result.deliveryVacancy) {
           alert("⚠️ 這位是固定送便當人員，退伍日之後送便當人力會出缺！請盡快在名冊中選2位新的「設為送便當」。");
         }
+        window.App.ScheduleEngine.rebuildAll();
         render();
-        rerenderOthers();
+        rerenderAll();
       });
     });
 

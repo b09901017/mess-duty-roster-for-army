@@ -38,78 +38,90 @@ window.App = window.App || {};
    * @param {{members, dutyCounts, washState, laundryState, dutySizeTable, shoppingRoster}} snapshot
    */
   function computeDay(dateStr, snapshot) {
-    const activeMembers = snapshot.members.filter((m) => window.App.State.isActiveOn(m, dateStr));
-    const activeCount = activeMembers.length;
-
-    const sizeConfig = window.App.DutySizeConfig.lookupDutySize(snapshot.dutySizeTable, activeCount);
-    if (!sizeConfig) {
-      return {
-        ok: false,
-        error: `${dateStr} 現有人數為 ${activeCount} 人，勤務人數設定表中找不到對應設定，請先到「勤務設定」補上這個人數的配置。`,
-      };
-    }
-
+    const St = window.App.State;
+    // 當天「有出現過」的人。退伍當天的人也算在內，因為他早餐、中餐還在。
+    const dayMembers = snapshot.members.filter((m) => St.isActiveOn(m, dateStr));
     const warnings = [];
 
-    /*
-     * 採買的人當天早餐、中餐完全不排勤務（含撤收），晚餐才歸隊。
-     * 少一個人做事，所以那兩餐的包便當袋子少一位，人數才對得起來。
-     */
     const shopper = window.App.ShoppingRoster.shopperFor(dateStr, snapshot.members, snapshot.shoppingRoster);
     if (shopper.warning) warnings.push(shopper.warning);
     const shopperId = shopper.memberId;
     const SHOPPER_OFF_MEALS = ["breakfast", "lunch"];
     const isOffForShopping = (memberId, meal) =>
       shopperId != null && memberId === shopperId && SHOPPER_OFF_MEALS.indexOf(meal) !== -1;
-    const availableForMeal = (memberId, meal) => !isOffForShopping(memberId, meal);
 
-    const deliveryMembers = activeMembers.filter((m) => m.fixedRole === "delivery");
-    const deliveryIds = deliveryMembers.map((m) => m.id);
-    if (deliveryIds.length !== 2) {
+    const memberById = {};
+    snapshot.members.forEach((m) => (memberById[m.id] = m));
+
+    /** 那個人那一餐在不在（已離營、去採買都算不在） */
+    const availableForMeal = (memberId, meal) => {
+      const member = memberById[memberId];
+      if (!member || !St.isActiveOn(member, dateStr, meal)) return false;
+      return !isOffForShopping(memberId, meal);
+    };
+
+    /*
+     * 勤務人數是按「那一餐實際在場的人數」查表的，不是按整天人數。
+     * 這樣採買的人被抽掉時，包便當袋子會自動少一位（17人那列剛好就是 lunchbag 3），
+     * 退伍當天晚上少人也會自動套用比較小的配置，不需要另外做加減。
+     */
+    const presentByMeal = {};
+    const sizeByMeal = {};
+    let sizeError = null;
+    MEAL_KEYS.forEach((meal) => {
+      const present = dayMembers.filter((m) => availableForMeal(m.id, meal));
+      presentByMeal[meal] = present;
+      const cfg = window.App.DutySizeConfig.lookupDutySize(snapshot.dutySizeTable, present.length);
+      if (!cfg && !sizeError) {
+        sizeError = `${dateStr} ${St.MEAL_LABELS[meal]}實際出勤 ${present.length} 人，勤務人數設定表中找不到對應設定，請先到「勤務設定」補上這個人數的配置。`;
+      }
+      sizeByMeal[meal] = cfg;
+    });
+    if (sizeError) return { ok: false, error: sizeError };
+
+    const deliveryAll = dayMembers.filter((m) => m.fixedRole === "delivery").map((m) => m.id);
+    if (deliveryAll.length !== 2) {
       warnings.push(
-        `固定送便當人力目前只有 ${deliveryIds.length} 人（正常應為2人），請到「名冊管理」手動指定送便當人員。`
+        `固定送便當人力目前只有 ${deliveryAll.length} 人（正常應為2人），請到「名冊管理」手動指定送便當人員。`
       );
     }
 
     const bySeq = (a, b) => a.seq - b.seq;
     const pools = {
-      261: activeMembers.filter((m) => m.cohort === "261").sort(bySeq),
-      263: activeMembers.filter((m) => m.cohort === "263").sort(bySeq),
+      261: dayMembers.filter((m) => m.cohort === "261").sort(bySeq),
+      263: dayMembers.filter((m) => m.cohort === "263").sort(bySeq),
     };
+
+    const dishwashCounts = {};
+    MEAL_KEYS.forEach((meal) => (dishwashCounts[meal] = sizeByMeal[meal].dishwash));
 
     const washDay = window.App.WashSchedule.computeWashDay(
       snapshot.washState,
       pools,
-      sizeConfig.dishwash,
+      dishwashCounts,
       availableForMeal
     );
 
     const cleanupDay = window.App.CleanupSchedule.computeCleanupDay(
-      activeMembers,
+      dayMembers,
       snapshot.dutyCounts,
       availableForMeal
     );
+    (cleanupDay.warnings || []).forEach((w) => warnings.push(w));
 
     const newDutyCounts = cloneDutyCounts(snapshot.dutyCounts);
     const meals = {};
     MEAL_KEYS.forEach((meal) => {
       const dishwashIds = washDay.assignments[meal] || [];
+      const present = presentByMeal[meal];
+      // 送便當也要看那一餐在不在（退伍當天晚上就不算他了）
+      const deliveryIds = present.filter((m) => m.fixedRole === "delivery").map((m) => m.id);
       const excludeIds = new Set(dishwashIds.concat(deliveryIds));
-      const otherPool = activeMembers.filter((m) => !excludeIds.has(m.id) && availableForMeal(m.id, meal));
-
-      // 採買的人被抽掉的那兩餐，包便當袋子少一位
-      const mealSizeConfig = Object.assign({}, sizeConfig);
-      if (shopperId != null && SHOPPER_OFF_MEALS.indexOf(meal) !== -1) {
-        mealSizeConfig.lunchbag = Math.max(0, mealSizeConfig.lunchbag - 1);
-      }
-
-      const otherAssign = window.App.OtherDuties.assignOtherDuties(otherPool, newDutyCounts, mealSizeConfig);
+      const otherPool = present.filter((m) => !excludeIds.has(m.id));
+      const otherAssign = window.App.OtherDuties.assignOtherDuties(otherPool, newDutyCounts, sizeByMeal[meal]);
 
       // 抬便當上車、上樓：除了洗碗的人與固定送便當的兩位以外，當餐在場的人全部一起幫忙
-      const carryExcluded = new Set(dishwashIds.concat(deliveryIds));
-      const carryIds = activeMembers
-        .filter((m) => availableForMeal(m.id, meal) && !carryExcluded.has(m.id))
-        .map((m) => m.id);
+      const carryIds = present.filter((m) => !excludeIds.has(m.id)).map((m) => m.id);
 
       meals[meal] = {
         dishwash: dishwashIds,
@@ -121,8 +133,10 @@ window.App = window.App || {};
         wipe: otherAssign.wipe,
         delivery: deliveryIds,
         cleanup: (cleanupDay.assignments[meal] || []).filter((id) => availableForMeal(id, meal)),
-        // 這一餐人不在（目前只有採買會這樣），顯示時要跟「有空幫忙包便當」區分開
-        absent: activeMembers.filter((m) => !availableForMeal(m.id, meal)).map((m) => m.id),
+        // 這一餐去採買所以人不在，顯示時要跟「有空幫忙包便當」區分開
+        absent: dayMembers.filter((m) => isOffForShopping(m.id, meal)).map((m) => m.id),
+        // 這一餐已經離營（退伍當天的晚餐），文字班表要寫「已離營」而不是「休息」
+        departed: dayMembers.filter((m) => !St.isActiveOn(m, dateStr, meal)).map((m) => m.id),
       };
 
       incrementCounts(newDutyCounts, dishwashIds, "dishwash");
@@ -151,7 +165,7 @@ window.App = window.App || {};
       meals,
       daily,
       warnings,
-      sizeConfig,
+      sizeConfig: sizeByMeal.dinner,
       newWashState: washDay.newWashState,
       newLaundryState: laundryDay.newLaundryState,
       newDutyCounts,

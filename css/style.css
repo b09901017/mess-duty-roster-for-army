@@ -463,6 +463,16 @@ th {
   font-size: 0.88em;
 }
 
+.tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
 .field {
   display: block;
   margin-bottom: 12px;

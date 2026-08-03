@@ -19,14 +19,19 @@ window.App = window.App || {};
     return ((mealData && mealData[dutyKey]) || []).includes(memberId);
   }
 
-  /** 這一餐這個人不在（去採買了） */
+  /** 這一餐這個人去採買了，不在 */
   function isAbsent(mealData, memberId) {
     return has(mealData, "absent", memberId);
   }
 
+  /** 這一餐這個人已經離營（退伍當天的晚餐） */
+  function hasDeparted(mealData, memberId) {
+    return has(mealData, "departed", memberId);
+  }
+
   /** 這一餐這個人要不要幫忙包便當（洗碗的、送便當的、以及人不在的不用） */
   function helpsWithLunchbag(mealData, memberId) {
-    if (isAbsent(mealData, memberId)) return false;
+    if (isAbsent(mealData, memberId) || hasDeparted(mealData, memberId)) return false;
     if (has(mealData, "lunchbag", memberId)) return false; // 他本來就是包便當的
     if (has(mealData, "dishwash", memberId)) return false;
     if (has(mealData, "delivery", memberId)) return false;
@@ -38,6 +43,7 @@ window.App = window.App || {};
    */
   function mealDutyLabels(mealData, memberId) {
     const short = window.App.State.DUTY_SHORT_LABELS;
+    if (hasDeparted(mealData, memberId)) return [short.departed];
     if (isAbsent(mealData, memberId)) return [short.shopping];
 
     const labels = [];
@@ -98,5 +104,6 @@ window.App = window.App || {};
     mealRowIds,
     mealRowDescription,
     isAbsent,
+    hasDeparted,
   };
 })();

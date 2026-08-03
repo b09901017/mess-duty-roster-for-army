@@ -53,26 +53,44 @@ window.App = window.App || {};
   }
 
   /**
-   * @param {object[]} activeMembers - 當天在役人員
+   * @param {object[]} dayMembers - 當天有出現過的人（退伍當天的人也算，他早/中還在）
    * @param {object} dutyCounts
-   * @param {(memberId: string, meal: string) => boolean} isAvailable - 採買的人早/中回傳 false
-   * @returns {{assignments: {breakfast:string[],lunch:string[],dinner:string[]}}}
+   * @param {(memberId: string, meal: string) => boolean} isAvailable - 那個人那一餐在不在（採買、已離營都會是 false）
+   * @returns {{assignments: {breakfast:string[],lunch:string[],dinner:string[]}, sizes: object, warnings: string[]}}
    */
-  function computeCleanupDay(activeMembers, dutyCounts, isAvailable) {
+  function computeCleanupDay(dayMembers, dutyCounts, isAvailable) {
     const available = isAvailable || (() => true);
-    const pool = cleanupEligible(activeMembers).slice().sort(rosterOrder);
+    const warnings = [];
+    const pool = cleanupEligible(dayMembers).slice().sort(rosterOrder);
     const sizes = cleanupSizes(pool.length);
+
+    /*
+     * 有些人晚上不能排撤收：名冊勾了「不排晚上撤收」的新人，以及退伍當天晚上已經離營的人。
+     * 因為每個人每天剛好排一次撤收，這些人一定得落在早餐或中餐，
+     * 所以挑早／中的時候要讓他們優先，否則最後會被擠到晚餐去。
+     */
+    const cannotDoDinner = (m) => m.skipDinnerCleanup || !available(m.id, "dinner");
+    const mustBeMorning = pool.filter(cannotDoDinner);
+    const morningCapacity = sizes.breakfast + sizes.lunch;
+    if (mustBeMorning.length > morningCapacity) {
+      warnings.push(
+        `不能排晚上撤收的人有 ${mustBeMorning.length} 位，超過早餐＋中餐的 ${morningCapacity} 個名額，請調整名冊設定。`
+      );
+    }
 
     const assignments = { breakfast: [], lunch: [], dinner: [] };
     let remaining = pool.slice();
 
-    // 早餐、中餐依「那一餐做最少次的人優先」挑，晚餐就是剩下的人
+    // 早餐、中餐依「非晚上不可者優先 → 那一餐做最少次的人優先」挑，晚餐就是剩下的人
     ["breakfast", "lunch"].forEach((meal) => {
       const need = sizes[meal];
       const mealCountKey = PER_MEAL_COUNT_KEY[meal];
       const candidates = remaining
         .filter((m) => available(m.id, meal))
         .sort((a, b) => {
+          const pa = cannotDoDinner(a) ? 0 : 1;
+          const pb = cannotDoDinner(b) ? 0 : 1;
+          if (pa !== pb) return pa - pb;
           const ma = countOf(dutyCounts, a.id, mealCountKey);
           const mb = countOf(dutyCounts, b.id, mealCountKey);
           if (ma !== mb) return ma - mb;
@@ -88,9 +106,9 @@ window.App = window.App || {};
       remaining = remaining.filter((m) => !chosenIds.has(m.id));
     });
 
-    assignments.dinner = remaining.filter((m) => available(m.id, "dinner")).map((m) => m.id);
+    assignments.dinner = remaining.filter((m) => available(m.id, "dinner") && !m.skipDinnerCleanup).map((m) => m.id);
 
-    return { assignments, sizes };
+    return { assignments, sizes, warnings };
   }
 
   window.App.CleanupSchedule = { computeCleanupDay, cleanupSizes, cleanupEligible, PER_MEAL_COUNT_KEY };

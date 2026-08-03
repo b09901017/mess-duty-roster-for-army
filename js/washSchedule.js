@@ -19,12 +19,15 @@ window.App = window.App || {};
   /**
    * @param {object} washState - { primaryPointer: {261,263}, nextPrimaryCohort }
    * @param {{261: object[], 263: object[]}} pools - 已排序、已排除固定送便當的洗碗池
-   * @param {number} perMealCount - 每餐需求人數
+   * @param {{breakfast:number,lunch:number,dinner:number}} perMealCounts - 各餐需求人數
    * @param {(memberId: string, meal: string) => boolean} [isAvailable] - 那個人那一餐能不能排（採買的人早/中不能排）
    * @returns {{assignments: {breakfast:string[],lunch:string[],dinner:string[]}, newWashState: object, primaryCohort: string}}
    */
-  function computeWashDay(washState, pools, perMealCount, isAvailable) {
+  function computeWashDay(washState, pools, perMealCounts, isAvailable) {
     const available = isAvailable || (() => true);
+    // 允許傳單一數字（三餐都一樣）或物件（各餐不同，例如退伍當天晚上人變少）
+    const countFor = (meal) =>
+      typeof perMealCounts === "number" ? perMealCounts : (perMealCounts && perMealCounts[meal]) || 0;
     const primaryCohort = washState.nextPrimaryCohort;
     const secondaryCohort = primaryCohort === "261" ? "263" : "261";
 
@@ -57,6 +60,7 @@ window.App = window.App || {};
     const usedIds = new Set();
 
     MEAL_KEYS.forEach((meal) => {
+      const perMealCount = countFor(meal);
       const picked = [];
       const guardLimit = combinedLen * 4 + 10;
       let guard = 0;

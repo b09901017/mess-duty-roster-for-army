@@ -6,6 +6,10 @@ window.App = window.App || {};
 
   const STORAGE_KEY = "mess-duty-roster-v4";
 
+  // 名冊種子每次異動就 +1。舊資料（含從雲端還原的）rosterVersion 對不上時，
+  // 會自動換上新名冊，這樣改名冊不用叫使用者清快取，也不會被雲端的舊名冊蓋回去。
+  const ROSTER_VERSION = 2;
+
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
   // 洗衣籃輪替從這天開始；這天只有睡前抬下去，沒有昨天的籃子要抬上來
@@ -82,6 +86,7 @@ window.App = window.App || {};
     laundryUp: "抬洗衣籃上來",
     laundryDown: "抬洗衣籃下去",
     shopping: "採買",
+    departed: "已離營",
   };
 
   const DUTY_ICONS = {
@@ -112,51 +117,70 @@ window.App = window.App || {};
     return new Date().toISOString().slice(0, 10);
   }
 
+  // 2026/08/04 這天有一波人員異動：三位離開、261 加入五位新人。
+  // 新人 joinDate 設在 8/4，離開的人 dischargeDate 也設 8/4
+  //（依「退伍當天做到中午」的規則，他們 8/4 早、中還在，晚上才離營）。
+  const CHANGE_DATE = "2026-08-04";
+
   function seedMembers() {
+    // [姓名, 退伍日, 加入日]
     const r261 = [
-      ["李愷宸", null],
-      ["江偉綸", "2026-08-04"],
-      ["陳柏翰", "2026-08-14"],
-      ["鄧旭辰", "2026-08-08"],
-      ["廖翊滕", "2026-08-10"],
-      ["陳俊穎", "2026-08-13"],
-      ["林柏宇", "2026-08-14"],
-      ["林崇浩", "2026-08-13"],
+      ["李愷宸", CHANGE_DATE, null],
+      ["江偉綸", "2026-08-04", null],
+      ["陳柏翰", "2026-08-14", null],
+      ["鄧旭辰", "2026-08-08", null],
+      ["廖翊滕", "2026-08-10", null],
+      ["陳俊穎", "2026-08-13", null],
+      ["林柏宇", "2026-08-14", null],
+      ["林崇浩", "2026-08-13", null],
+      // 8/4 加入的五位新人：不排抬洗衣籃，也不排晚上的撤收
+      ["丁楚祐", null, CHANGE_DATE],
+      ["蔣許子宸", null, CHANGE_DATE],
+      ["文軍諺", null, CHANGE_DATE],
+      ["王傑立", null, CHANGE_DATE],
+      ["簡宏穎", null, CHANGE_DATE],
     ];
     const r263 = [
-      "陳東霖",
-      "呂胤玄",
-      "林柏翰",
-      "曹月輝",
-      "黃聖為",
-      "李易宸",
-      "顏允彣",
-      "呂承鴻",
-      "盧明煬",
-      "田權楨",
+      ["陳東霖", null],
+      ["呂胤玄", null],
+      ["林柏翰", null],
+      ["曹月輝", null],
+      ["黃聖為", null],
+      ["李易宸", CHANGE_DATE],
+      ["顏允彣", null],
+      ["呂承鴻", null],
+      ["盧明煬", CHANGE_DATE],
+      ["田權楨", null],
     ];
 
     const members = [];
-    r261.forEach(([name, dischargeDate], idx) => {
+    r261.forEach(([name, dischargeDate, joinDate], idx) => {
       const seq = idx + 1;
+      const isNewcomer = !!joinDate;
       members.push({
         id: `261-${seq}`,
         name,
         cohort: "261",
         seq,
-        dischargeDate: dischargeDate,
+        joinDate: joinDate || null,
+        dischargeDate: dischargeDate || null,
         fixedRole: seq === 7 || seq === 8 ? "delivery" : null,
+        skipLaundry: isNewcomer,
+        skipDinnerCleanup: isNewcomer,
       });
     });
-    r263.forEach((name, idx) => {
+    r263.forEach(([name, dischargeDate], idx) => {
       const seq = idx + 1;
       members.push({
         id: `263-${seq}`,
         name,
         cohort: "263",
         seq,
-        dischargeDate: null,
+        joinDate: null,
+        dischargeDate: dischargeDate || null,
         fixedRole: null,
+        skipLaundry: false,
+        skipDinnerCleanup: false,
       });
     });
     return members;
@@ -165,6 +189,8 @@ window.App = window.App || {};
   function defaultDutySizeTable() {
     // 依使用者給的預設縮減順序：包便當-1,-1 → 廚餘-1 → 洗碗-1 → 包便當-1 → 廚餘-1
     return [
+      { minActiveCount: 20, dishwash: 7, foodwaste: 5, lunchbag: 4, wipe: 1, floor: 1 },
+      { minActiveCount: 19, dishwash: 7, foodwaste: 4, lunchbag: 4, wipe: 1, floor: 1 },
       { minActiveCount: 18, dishwash: 6, foodwaste: 4, lunchbag: 4, wipe: 1, floor: 1 },
       { minActiveCount: 17, dishwash: 6, foodwaste: 4, lunchbag: 3, wipe: 1, floor: 1 },
       { minActiveCount: 16, dishwash: 6, foodwaste: 4, lunchbag: 2, wipe: 1, floor: 1 },
@@ -209,6 +235,7 @@ window.App = window.App || {};
 
     return {
       version: 5,
+      rosterVersion: ROSTER_VERSION,
       members,
       dutySizeTable: defaultDutySizeTable(),
       shoppingRoster: defaultShoppingRoster(),
@@ -251,6 +278,12 @@ window.App = window.App || {};
     // 舊版的「臨時登記採買」已改成固定星期表；撤收也不再用固定分組
     delete merged.shoppingLog;
     delete merged.cleanupGroups;
+
+    // 名冊有改版就換上新名冊（已排好的日期會依新名冊重播，不會遺失）
+    if (parsed.rosterVersion !== ROSTER_VERSION) {
+      merged.members = base.members;
+      merged.rosterVersion = ROSTER_VERSION;
+    }
     return merged;
   }
 
@@ -296,17 +329,28 @@ window.App = window.App || {};
     save();
   }
 
-  /** 該員在指定日期是否仍在役（退伍日當天起視為不在役） */
-  function isActiveOn(member, dateStr) {
-    return !member.dischargeDate || dateStr < member.dischargeDate;
+  /**
+   * 該員在指定日期（可再指定餐別）是否在營。
+   *
+   * 退伍當天還是可以做早餐、中餐的勤務，晚上才離營，所以要分餐別判斷：
+   *   - 傳入 meal 時：退伍當天早/中回 true、晚回 false。
+   *   - 沒傳 meal 時：代表問「這天有沒有出現過」，退伍當天回 true。
+   * 下午之後的事（抬洗衣籃）用 meal="dinner" 來問，退伍當天就不會被排到。
+   */
+  function isActiveOn(member, dateStr, meal) {
+    if (member.joinDate && dateStr < member.joinDate) return false;
+    if (!member.dischargeDate) return true;
+    if (dateStr < member.dischargeDate) return true;
+    if (dateStr > member.dischargeDate) return false;
+    return meal ? meal === "breakfast" || meal === "lunch" : true;
   }
 
-  function activeMembersOn(dateStr) {
-    return state.members.filter((m) => isActiveOn(m, dateStr));
+  function activeMembersOn(dateStr, meal) {
+    return state.members.filter((m) => isActiveOn(m, dateStr, meal));
   }
 
-  function activeMembersByCohortOn(cohort, dateStr) {
-    return activeMembersOn(dateStr)
+  function activeMembersByCohortOn(cohort, dateStr, meal) {
+    return activeMembersOn(dateStr, meal)
       .filter((m) => m.cohort === cohort)
       .sort((a, b) => a.seq - b.seq);
   }

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>公平性總覽</title>
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  /* LIFF 只放公平性總覽一頁，不需要分頁列，版面也可以窄一點 */
+  .app-shell { max-width: 720px; }
+  .app-header { padding: 20px 16px 4px; }
+  .app-header h1 { font-size: 1.25rem; }
+  .liff-status { padding: 12px 16px; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <header class="app-header">
+    <h1>📊 公平性總覽</h1>
+    <p class="subtitle" id="subtitle">載入中…</p>
+  </header>
+
+  <main class="tab-content">
+    <div class="liff-status" id="liff-status"></div>
+    <section id="tab-dashboard" class="tab-panel active"></section>
+  </main>
+</div>
+
+<script>
+/*
+ * 這頁是唯讀的檢視畫面，而且跟主 App 同一個網域。
+ * state.js 一載入就會讀寫 localStorage，如果不擋掉，光是打開這頁就會把值星在
+ * 同一個瀏覽器裡的存檔覆蓋成雲端那份。所以先換上一個什麼都不做的假 localStorage。
+ */
+(function () {
+  const noop = {
+    getItem: function () { return null; },
+    setItem: function () {},
+    removeItem: function () {},
+    clear: function () {},
+  };
+  try {
+    Object.defineProperty(window, "localStorage", { value: noop, configurable: true });
+  } catch (err) {
+    /* 改不掉就算了，至少功能還在 */
+  }
+})();
+</script>
+
+<script src="../js/state.js"></script>
+<script src="../js/shoppingRoster.js"></script>
+<script src="../js/dutySizeConfig.js"></script>
+<script src="../js/washSchedule.js"></script>
+<script src="../js/otherDuties.js"></script>
+<script src="../js/cleanupSchedule.js"></script>
+<script src="../js/laundry.js"></script>
+<script src="../js/servingLine.js"></script>
+<script src="../js/dutyView.js"></script>
+<script src="../js/textFormat.js"></script>
+<script src="../js/fairnessChart.js"></script>
+<script src="../js/scheduleEngine.js"></script>
+<script src="../js/ui-dashboard.js"></script>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const statusEl = document.getElementById("liff-status");
+  const subtitleEl = document.getElementById("subtitle");
+
+  function showError(message) {
+    statusEl.innerHTML = '<div class="warning-box">⚠️ ' + message + "</div>";
+  }
+
+  function keyFromUrl() {
+    return new URLSearchParams(location.search).get("k");
+  }
+
+  /* 在 LINE 裡開就用 ID token 驗證，在一般瀏覽器開就退回網址上的金鑰 */
+  async function authHeaders() {
+    if (typeof liff === "undefined") return {};
+    let liffId = null;
+    try {
+      const res = await fetch("/api/config");
+      liffId = (await res.json()).liffId;
+    } catch (err) {
+      return {};
+    }
+    if (!liffId) return {};
+    try {
+      await liff.init({ liffId: liffId });
+      const token = liff.getIDToken();
+      return token ? { Authorization: "Bearer " + token } : {};
+    } catch (err) {
+      return {};
+    }
+  }
+
+  async function main() {
+    const headers = await authHeaders();
+    const key = keyFromUrl();
+    const url = "/api/state" + (key ? "?k=" + encodeURIComponent(key) : "");
+
+    let data;
+    try {
+      const res = await fetch(url, { headers: headers });
+      if (!res.ok) {
+        const body = await res.json().catch(function () { return {}; });
+        showError(body.error || "讀取失敗（" + res.status + "）");
+        subtitleEl.textContent = "";
+        return;
+      }
+      data = await res.json();
+    } catch (err) {
+      showError("連不上伺服器：" + err.message);
+      subtitleEl.textContent = "";
+      return;
+    }
+
+    const S = window.App.State;
+    S.replaceState(S.migrate(JSON.parse(data.payload)));
+    window.App.ScheduleEngine.rebuildAll();
+
+    const updated = data.updatedAt ? new Date(data.updatedAt) : null;
+    subtitleEl.textContent = updated
+      ? "資料更新於 " + updated.toLocaleString("zh-TW", { hour12: false })
+      : "261 梯 × 263 梯 · 公平自動排勤務";
+
+    statusEl.innerHTML = "";
+    window.App.UI.Dashboard.render();
+  }
+
+  main();
+})();
+</script>
+</body>
+</html>

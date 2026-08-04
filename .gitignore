@@ -1,3 +1,10 @@
 .DS_Store
 node_modules/
 *.log
+
+# Vercel / LINE bot
+.vercel/
+.env
+.env.*
+.demo-out/
+out/

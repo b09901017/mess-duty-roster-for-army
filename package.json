@@ -1,0 +1,14 @@
+{
+  "name": "mess-duty-roster-for-army",
+  "version": "1.0.0",
+  "private": true,
+  "description": "261/263 梯打飯班公平排勤務工具 ＋ LINE bot",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check": "node scripts/check-syntax.js",
+    "bot:demo": "node scripts/bot-demo.js"
+  }
+}

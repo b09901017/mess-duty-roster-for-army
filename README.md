@@ -109,6 +109,25 @@ service cloud.firestore {
 
 沒設定雲端同步的話 App 一樣能正常使用，只是沒有雲端備份；頁腳的「匯出備份／匯入備份」隨時可以另外存一份 JSON 檔。
 
+## LINE 機器人（選用）
+
+把機器人邀進打飯班群組，打一句 **`今日勤務`** 或 **`8/5 勤務`**，它就會回一組**可以左右滑的 9 張卡片**：三餐勤務各一張、261 梯個人分工兩張（01-08／09-13）、263 梯兩張（01-05／06-10）、全日勤務一張，最後一張是公平性總覽（圖片＋「看完整」按鈕，點進去是 LIFF 版的公平性頁面）。
+
+- 卡片內容跟「文字班表」分頁完全同源（`js/textFormat.js`），不會兩邊長歪。
+- 機器人跟網頁跑**同一份排班程式碼**：`api/_lib/app.js` 把 `js/` 底下的腳本丟進 Node 的 `vm` sandbox 執行，只補一個記憶體版的 `localStorage`。規則改一次，兩邊一起變。
+- 資料來源是 App「雲端同步」上傳的那份 Firestore，所以在 App 按完「確定紀錄」，機器人下一次回答就是最新的。
+- 那天還沒按「確定紀錄」也問得到——機器人會即時算一份預覽，並註明「尚未確定」（排班是決定性的，之後確定會一模一樣）。
+- 群組裡沒有出現「勤務」或「班表」就不會回話，不會洗版。
+
+跑在 Vercel 免費方案。完整設定步驟（LINE channel、Vercel 環境變數、LIFF）看 **[docs/LINE-BOT-SETUP.md](docs/LINE-BOT-SETUP.md)**。
+
+不想部署就先看看長怎樣：
+
+```bash
+node scripts/bot-demo.js 2026-08-04 ./out      # 印出 9 張卡片的內容 ＋ 存出公平性 PNG
+MOCK_ROSTER=1 STATE_READ_KEY=devkey node scripts/dev-server.js 8123   # 本機模擬 Vercel
+```
+
 ## 使用方式
 
 直接用瀏覽器開啟 `index.html`，或用任何靜態網頁伺服器（例如 `npx serve .` / `python3 -m http.server`）啟動後瀏覽。頁腳有「匯出備份／匯入備份」可用 JSON 檔備份或轉移資料。
@@ -129,11 +148,33 @@ service cloud.firestore {
 │   ├── servingLine.js        # 打菜流程（固定角色 + 打菜/蓋便當輪替 + 包餐盒）
 │   ├── dutySizeConfig.js     # 人數縮減對照表查詢
 │   ├── dutyView.js           # 「某人某餐要做什麼」的共用推導（打菜段與勤務段）
+│   ├── textFormat.js         # 文字班表的組法（網頁與 LINE bot 共用）
+│   ├── fairnessChart.js      # 公平性圓圖的資料模型（SVG 與 PNG 共用）
 │   ├── scheduleEngine.js     # 純計算 + 重播（決定性排班）+ 預覽/確定紀錄
 │   ├── shoppingRoster.js     # 採買星期表查詢
 │   ├── cloudSync.js          # Firebase Firestore 雲端同步（選用）
 │   ├── ui-*.js               # 各分頁畫面（含文字班表、圓餅圖總覽、雲端設定）
 │   └── app.js                # 進入點、分頁切換
+├── api/                      # LINE bot（Vercel serverless functions）
+│   ├── webhook.js            # LINE webhook：驗簽章、解析訊息、回卡片
+│   ├── fairness.js           # 公平性總覽 PNG
+│   ├── state.js              # LIFF 用的唯讀資料端點
+│   ├── config.js             # 給 LIFF 頁面取 LIFF ID
+│   └── _lib/
+│       ├── app.js            # 在 Node 的 vm sandbox 裡跑 js/ 那份排班程式碼
+│       ├── firestore.js      # 匿名登入 + 讀雲端那份狀態
+│       ├── roster.js         # 讀雲端 → 排班 → 取某天班表
+│       ├── cards.js          # 組出 9 張 Flex 卡片
+│       ├── parseCommand.js   # 看懂「今日勤務」「8/5 勤務」
+│       ├── fairnessImage.js  # 主要四項勤務排成 2×2
+│       ├── png.js            # 純 JS 的圓圖描繪 + PNG 編碼（零套件）
+│       └── line.js           # 驗簽章、回訊息、驗 LIFF ID token
+├── liff/index.html           # LIFF：只放公平性總覽那一頁
+├── scripts/
+│   ├── bot-demo.js           # 本機跑一遍整條 bot 流程
+│   ├── dev-server.js         # 本機模擬 Vercel
+│   └── check-syntax.js       # 全部檔案 node --check
+├── docs/LINE-BOT-SETUP.md    # LINE bot 設定步驟
 └── README.md
 ```
 

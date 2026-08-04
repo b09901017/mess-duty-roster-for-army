@@ -1,11 +1,14 @@
 /*
- * 公平性總覽：每項勤務一個圓餅圖。
+ * 公平性總覽：每項勤務一個圓圖。
  *
- * 扇形大小 = 這個人佔該項勤務的比例（做越多次，扇形越大）。
- * 扇形顏色 = 相對「公平份額」的偏離程度（做太多偏橘紅、剛好是灰、做太少偏藍），
- * 因為18個人不可能用18種能分辨的顏色，把顏色改成表達「公不公平」才真的一目了然。
+ * 每個人固定佔一格（角度都一樣），格子往外伸得越長＝做越多次。
+ * 顏色代表相對「公平份額」的偏離程度（做太多偏橘紅、剛好是灰、做太少偏藍），
+ * 因為十幾個人不可能用十幾種能分辨的顏色，把顏色改成表達「公不公平」才真的一目了然。
  * 顏色是 dataviz 的 diverging 配色，已用 validate_palette.js 驗過
  * （CVD ΔE 17.9、一般視覺 ΔE 18.1，皆通過門檻）。
+ *
+ * 數字與角度都由 js/fairnessChart.js 算好（LINE bot 畫 PNG 用的是同一份模型），
+ * 這裡只負責把模型畫成 SVG。
  */
 window.App = window.App || {};
 window.App.UI = window.App.UI || {};
@@ -14,57 +17,10 @@ window.App.UI = window.App.UI || {};
   "use strict";
 
   const container = () => document.getElementById("tab-dashboard");
-  /*
-   * 採買是固定的星期輪值，不是靠公平演算法分的，畫成公平圖沒有意義（次數在「採買」分頁看）。
-   * cleanupBreakfast/Lunch/Dinner 是排撤收時內部用來平衡餐別的計數，不用單獨畫圖。
-   */
-  const HIDDEN_FROM_CHARTS = ["shopping", "cleanupBreakfast", "cleanupLunch", "cleanupDinner"];
-  const DUTY_KEYS = window.App.State.DUTY_KEYS.filter((k) => HIDDEN_FROM_CHARTS.indexOf(k) === -1);
-
-  // diverging：做最少 → 剛好 → 做最多
-  const BUCKETS = [
-    { key: "far-under", color: "#17539b", label: "明顯偏少" },
-    { key: "under", color: "#5598e7", label: "略少" },
-    { key: "fair", color: "#d3cdc1", label: "接近平均" },
-    { key: "over", color: "#ef7a20", label: "略多" },
-    { key: "far-over", color: "#b53c12", label: "明顯偏多" },
-  ];
 
   const SURFACE = "#ffffff";
   const RADIUS = 78;
   const CENTER = 92;
-  const GAP_DEG = 1.4; // 扇形之間留 surface 色的縫，取代描邊
-
-  /**
-   * 誰「應該」被排到這項勤務。固定送便當的兩位不會被排到洗碗、雜項勤務與撤收，
-   * 所以算公平的時候不能把他們算進去，否則他們的 0 次會被誤判成「做太少」。
-   * 洗衣籃是全員一起輪（含送便當的兩位）。
-   */
-  function eligibleFor(dutyKey, members) {
-    if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
-    // 洗衣籃是全員一起輪，但名冊上勾「免排洗衣籃」的人不算
-    if (dutyKey === "laundry") return members.filter((m) => !m.skipLaundry);
-    // 打菜、蓋便當、包餐盒只在「沒有固定角色」的人之間輪
-    if (["serveDish", "lid", "boxing"].indexOf(dutyKey) !== -1) return members.filter((m) => !m.servingRole);
-    return members.filter((m) => m.fixedRole !== "delivery");
-  }
-
-  /**
-   * 公平區間：總共 total 人次要分給 n 個人時，最公平的分法是每人拿 floor 或 ceil，
-   * 落在這個區間內就算公平。用整數區間而不是「跟平均值的比例」，是因為勤務還沒輪完
-   * 一圈時（例如擦桌子一天只有3個名額），平均值會小於1，任何做過一次的人都會被
-   * 誤判成「偏多」。
-   */
-  function fairBand(total, n) {
-    if (n <= 0) return { lo: 0, hi: 0 };
-    return { lo: Math.floor(total / n), hi: Math.ceil(total / n) };
-  }
-
-  function bucketFor(count, band) {
-    if (count > band.hi) return count >= band.hi + 2 ? BUCKETS[4] : BUCKETS[3];
-    if (count < band.lo) return count <= band.lo - 2 ? BUCKETS[0] : BUCKETS[1];
-    return BUCKETS[2];
-  }
 
   function polar(angleDeg, radius) {
     const rad = ((angleDeg - 90) * Math.PI) / 180;
@@ -72,19 +28,18 @@ window.App.UI = window.App.UI || {};
   }
 
   function arcPath(startDeg, endDeg, radius) {
-    const r = radius == null ? RADIUS : radius;
     const sweep = endDeg - startDeg;
-    if (sweep <= 0 || r <= 0) return "";
+    if (sweep <= 0 || radius <= 0) return "";
     // 整圈的情況 path 畫不出來，用兩段半圓
     if (sweep >= 359.999) {
-      const [x0, y0] = polar(0, r);
-      const [x1, y1] = polar(180, r);
-      return `M ${x0} ${y0} A ${r} ${r} 0 1 1 ${x1} ${y1} A ${r} ${r} 0 1 1 ${x0} ${y0} Z`;
+      const [x0, y0] = polar(0, radius);
+      const [x1, y1] = polar(180, radius);
+      return `M ${x0} ${y0} A ${radius} ${radius} 0 1 1 ${x1} ${y1} A ${radius} ${radius} 0 1 1 ${x0} ${y0} Z`;
     }
-    const [sx, sy] = polar(startDeg, r);
-    const [ex, ey] = polar(endDeg, r);
+    const [sx, sy] = polar(startDeg, radius);
+    const [ex, ey] = polar(endDeg, radius);
     const largeArc = sweep > 180 ? 1 : 0;
-    return `M ${CENTER} ${CENTER} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey} Z`;
+    return `M ${CENTER} ${CENTER} L ${sx} ${sy} A ${radius} ${radius} 0 ${largeArc} 1 ${ex} ${ey} Z`;
   }
 
   function escapeHtml(str) {
@@ -92,12 +47,11 @@ window.App.UI = window.App.UI || {};
   }
 
   function dutySection(dutyKey, members, dutyCounts) {
-    const countOf = (m) => (dutyCounts[m.id] && dutyCounts[m.id][dutyKey]) || 0;
-    const eligible = eligibleFor(dutyKey, members);
-    const total = eligible.reduce((s, m) => s + countOf(m), 0);
-    const label = `${window.App.State.DUTY_ICONS[dutyKey]} ${window.App.State.DUTY_LABELS[dutyKey]}`;
+    const FC = window.App.FairnessChart;
+    const model = FC.chartModel(dutyKey, members, dutyCounts);
+    const label = `${window.App.State.DUTY_ICONS[dutyKey]} ${model.label}`;
 
-    if (total === 0) {
+    if (model.empty) {
       return `
         <section class="duty-chart-card">
           <h3>${label}</h3>
@@ -105,85 +59,45 @@ window.App.UI = window.App.UI || {};
         </section>`;
     }
 
-    const band = fairBand(total, eligible.length);
-    const mean = total / eligible.length;
+    const slices = model.slices.map((s) => ({
+      trackPath: arcPath(s.startDeg, s.endDeg, RADIUS),
+      path: arcPath(s.startDeg, s.endDeg, RADIUS * s.radiusRatio),
+      color: s.bucket.color,
+      title: `${s.name}（${s.cohort}梯）${s.count} 次・佔 ${s.pct.toFixed(1)}%・${s.bucket.label}`,
+    }));
 
-    // 每個人固定一格（角度都一樣），格子的半徑代表次數，面積正比於次數。
-    // 用等角度而不是「照比例切派」，是因為次數 0 的人在比例派裡角度是 0、根本畫不出來，
-    // 這樣還沒輪到的人也看得見自己那一格。順序固定用名冊順序，不同勤務之間才好對照。
-    const rows = eligible.map((m) => ({ m, count: countOf(m) }));
-    const maxCount = Math.max(...rows.map((r) => r.count));
-    const sweep = 360 / rows.length;
-    const gap = rows.length > 1 ? Math.min(GAP_DEG, sweep * 0.18) : 0;
-
-    const slices = rows.map((r, i) => {
-      const start = i * sweep;
-      const end = start + sweep;
-      // 面積正比於次數 → 半徑取平方根
-      const radius = maxCount > 0 ? RADIUS * Math.sqrt(r.count / maxCount) : 0;
-      const pct = total ? ((r.count / total) * 100).toFixed(1) : "0.0";
-      return {
-        trackPath: arcPath(start + gap / 2, end - gap / 2, RADIUS),
-        path: arcPath(start + gap / 2, end - gap / 2, radius),
-        bucket: bucketFor(r.count, band),
-        name: r.m.name,
-        cohort: r.m.cohort,
-        count: r.count,
-        pct,
-      };
-    });
-
-    const topNames = rows.filter((r) => r.count === maxCount).map((r) => r.m.name);
-    const zeroCount = eligible.filter((m) => countOf(m) === 0).length;
-    const overNames = eligible.filter((m) => countOf(m) > band.hi).map((m) => m.name);
-    const underNames = eligible.filter((m) => countOf(m) < band.lo).map((m) => m.name);
-
-    const extremeParts = [`最多 ${topNames.slice(0, 3).join("、")}${topNames.length > 3 ? "等" : ""} ${maxCount} 次`];
-    if (zeroCount) extremeParts.push(`還沒輪到 ${zeroCount} 人`);
-    if (overNames.length || underNames.length) {
-      const bits = [];
-      if (overNames.length) bits.push(`偏多 ${overNames.length} 人`);
-      if (underNames.length) bits.push(`偏少 ${underNames.length} 人`);
-      extremeParts.push(bits.join("、"));
-    } else {
-      extremeParts.push("目前分配平均 ✅");
-    }
-
-    const tableRows = eligible
-      .map((m) => ({ m, count: countOf(m) }))
-      .sort((a, b) => b.count - a.count || a.m.cohort.localeCompare(b.m.cohort) || a.m.seq - b.m.seq)
-      .map((r) => {
-        const pct = total ? ((r.count / total) * 100).toFixed(1) : "0.0";
-        const bucket = bucketFor(r.count, band);
-        return `<tr>
-          <td><span class="swatch" style="background:${bucket.color}"></span>${escapeHtml(r.m.name)}</td>
-          <td class="num">${r.count}</td>
-          <td class="num">${pct}%</td>
-        </tr>`;
-      })
+    const tableRows = model.slices
+      .slice()
+      .sort((a, b) => b.count - a.count || a.cohort.localeCompare(b.cohort) || a.name.localeCompare(b.name))
+      .map(
+        (s) => `<tr>
+          <td><span class="swatch" style="background:${s.bucket.color}"></span>${escapeHtml(s.name)}</td>
+          <td class="num">${s.count}</td>
+          <td class="num">${s.pct.toFixed(1)}%</td>
+        </tr>`
+      )
       .join("");
 
-    const bandText = band.lo === band.hi ? `每人 ${band.lo} 次` : `每人 ${band.lo}～${band.hi} 次`;
+    const bandText =
+      model.band.lo === model.band.hi ? `每人 ${model.band.lo} 次` : `每人 ${model.band.lo}～${model.band.hi} 次`;
 
     return `
       <section class="duty-chart-card">
         <h3>${label}</h3>
-        <p class="chart-caption">共 ${total} 人次，${eligible.length} 人分，平均 ${mean.toFixed(
-          1
-        )} 次（公平範圍：${bandText}）</p>
-        <p class="chart-extremes">${escapeHtml(extremeParts.join("　·　"))}</p>
+        <p class="chart-caption">共 ${model.total} 人次，${model.eligibleCount} 人分，平均 ${model.mean.toFixed(
+      1
+    )} 次（公平範圍：${bandText}）</p>
+        <p class="chart-extremes">${escapeHtml(FC.summaryLine(model))}</p>
         <div class="chart-and-table">
           <svg class="pie" viewBox="0 0 ${CENTER * 2} ${CENTER * 2}" role="img"
-               aria-label="${window.App.State.DUTY_LABELS[dutyKey]}各人次數佔比">
+               aria-label="${model.label}各人次數佔比">
             ${slices.map((s) => `<path d="${s.trackPath}" class="slice-track"/>`).join("")}
             ${slices
               .map(
                 (s) =>
                   `<g class="slice"><path d="${s.trackPath}" fill="transparent"/>${
-                    s.path ? `<path d="${s.path}" fill="${s.bucket.color}"/>` : ""
-                  }<title>${escapeHtml(s.name)}（${s.cohort}梯）${s.count} 次・佔 ${s.pct}%・${
-                    s.bucket.label
-                  }</title></g>`
+                    s.path ? `<path d="${s.path}" fill="${s.color}"/>` : ""
+                  }<title>${escapeHtml(s.title)}</title></g>`
               )
               .join("")}
           </svg>
@@ -198,6 +112,7 @@ window.App.UI = window.App.UI || {};
   }
 
   function legend() {
+    const BUCKETS = window.App.FairnessChart.BUCKETS;
     return `
       <div class="card">
         <h2>怎麼看這些圖</h2>
@@ -208,7 +123,8 @@ window.App.UI = window.App.UI || {};
           每人拿 0 次或 1 次都算公平，所以都是灰色；真的超出公平範圍才會變橘色或藍色。
           <strong>整張圖越接近灰色、長度越整齊＝分配越平均</strong>。
           完整數字看旁邊的表格，滑鼠移到格子上也會顯示。
-          固定送便當的兩位不會被排到洗碗與其他雜項勤務，那幾張圖不會把他們算進去。
+          固定送便當的兩位不會被排到洗碗與其他雜項勤務，那幾張圖不會把他們算進去；
+          打菜、蓋便當、包餐盒則只算沒有打菜固定角色的人。
         </p>
         <div class="legend-row">
           ${BUCKETS.map(
@@ -220,10 +136,7 @@ window.App.UI = window.App.UI || {};
 
   function render() {
     const state = window.App.State.get();
-    const active = window.App.State.activeMembers().sort((a, b) => {
-      if (a.cohort !== b.cohort) return a.cohort.localeCompare(b.cohort);
-      return a.seq - b.seq;
-    });
+    const active = window.App.TextFormat.sortedMembers(window.App.State.activeMembers());
 
     if (active.length === 0) {
       container().innerHTML = `<div class="empty-state">名冊中沒有現役人員。</div>`;
@@ -233,7 +146,9 @@ window.App.UI = window.App.UI || {};
     container().innerHTML = `
       ${legend()}
       <div class="duty-chart-grid">
-        ${DUTY_KEYS.map((duty) => dutySection(duty, active, state.dutyCounts)).join("")}
+        ${window.App.FairnessChart.chartedDutyKeys()
+          .map((duty) => dutySection(duty, active, state.dutyCounts))
+          .join("")}
       </div>
     `;
   }

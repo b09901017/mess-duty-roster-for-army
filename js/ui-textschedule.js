@@ -45,6 +45,12 @@ window.App.UI = window.App.UI || {};
     return time ? `${time} 安官桌前集合` : "";
   }
 
+  // 每一段的項目從 1 開始編號，貼到群組時比較好一項一項對
+  const STEP_EMOJI = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
+  function step(n) {
+    return STEP_EMOJI[n - 1] || `${n}.`;
+  }
+
   function buildMealText(dateStr, schedule, displayNames) {
     const S = window.App.State;
     const nameList = (ids) => (ids && ids.length ? ids.map((id) => displayNames[id] || id).join("、") : "無");
@@ -56,23 +62,26 @@ window.App.UI = window.App.UI || {};
       const mealData = schedule.meals[mealKey];
       const dishes = mealData.dishes != null ? mealData.dishes : S.menuSizeFor(dateStr, mealKey);
       lines.push("");
-      lines.push(`【${S.MEAL_LABELS[mealKey]}】一飯${dishes}菜`);
+      lines.push("────────────────");
+      lines.push(`【${S.MEAL_LABELS[mealKey]}】${S.menuLabel(mealKey, dishes)}`);
 
       lines.push("");
       lines.push("〔打菜〕");
+      let n = 0;
       S.SERVING_ROWS.forEach((rowKey) => {
         const ids = window.App.DutyView.servingRowIds(mealData, rowKey);
-        // 蓋便當、包餐盒可能沒人，沒人就不用列出來佔行
-        if (!ids.length && (rowKey === "lid" || rowKey === "boxing")) return;
-        lines.push(`${S.DUTY_LABELS[rowKey]}：${nameList(ids)}`);
+        // 沒人的行就不用列出來佔行（早餐沒有打飯；人不夠時沒有蓋便當）
+        if (!ids.length && ["rice", "lid", "boxing"].indexOf(rowKey) !== -1) return;
+        lines.push(`${step(++n)} ${S.DUTY_LABELS[rowKey]}：${nameList(ids)}`);
       });
 
       lines.push("");
       lines.push("〔勤務〕");
+      n = 0;
       S.MEAL_DUTY_ROWS.forEach((rowKey) => {
         const description = window.App.DutyView.mealRowDescription(rowKey);
         const value = description || nameList(window.App.DutyView.mealRowIds(mealData, rowKey));
-        lines.push(`${S.DUTY_LABELS[rowKey]}：${value}`);
+        lines.push(`${step(++n)} ${S.DUTY_LABELS[rowKey]}：${value}`);
       });
     });
 
@@ -80,12 +89,15 @@ window.App.UI = window.App.UI || {};
     const hasDaily = S.DAILY_DUTY_ROWS.some((k) => (daily[k] || []).length);
     if (hasDaily) {
       lines.push("");
+      lines.push("────────────────");
       lines.push("【全日】");
+      lines.push("");
+      let n = 0;
       S.DAILY_DUTY_ROWS.forEach((rowKey) => {
         const ids = daily[rowKey] || [];
         if (!ids.length) return;
         const suffix = rowKey === "shopping" && shoppingNote(dateStr) ? `（${shoppingNote(dateStr)}）` : "";
-        lines.push(`${S.DUTY_LABELS[rowKey]}：${nameList(ids)}${suffix}`);
+        lines.push(`${step(++n)} ${S.DUTY_LABELS[rowKey]}：${nameList(ids)}${suffix}`);
       });
     }
 

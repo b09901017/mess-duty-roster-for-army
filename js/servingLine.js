@@ -2,7 +2,7 @@
  * 打菜流程（打飯打菜的當下要做的事），跟「勤務」分開——勤務是打完菜之後才做的。
  *
  * 每一餐的組成：
- *   打飯      2人（固定：呂胤玄、田權楨）
+ *   打飯      2人（固定：呂胤玄、田權楨）。早餐不打飯，這兩位那一餐改成一起包餐盒。
  *   打菜      每道菜 2 人，所以看當餐幾道菜（輪替）
  *   蓋便當    2人（輪替）
  *   計數      2人（固定：顏允彣、鄧旭辰）
@@ -51,13 +51,21 @@ window.App = window.App || {};
    * @param {object[]} present - 這一餐在場的人
    * @param {object} dutyCounts
    * @param {number} dishes - 這一餐幾道菜
+   * @param {boolean} withRice - 這一餐要不要打飯（早餐不打飯）
    * @returns {{assignments: object, warnings: string[], dishes: number}}
    */
-  function computeServingLine(present, dutyCounts, dishes) {
+  function computeServingLine(present, dutyCounts, dishes, withRice) {
     const warnings = [];
+    const servesRice = withRice !== false;
     const byRole = (role) => present.filter((m) => m.servingRole === role).map((m) => m.id);
 
-    const rice = byRole("rice");
+    const riceRoleIds = byRole("rice");
+    /*
+     * 早餐不打飯，固定打飯的兩位改成一起包餐盒。
+     * 不把他們丟進打菜／蓋便當的輪替，是因為他們一天只有早餐才會進池子，
+     * 次數永遠追不上別人，公平圖會把他們誤判成「明顯偏少」。
+     */
+    const rice = servesRice ? riceRoleIds : [];
     const counting = byRole("count");
     const drinks = byRole("drinks");
 
@@ -70,7 +78,7 @@ window.App = window.App || {};
       }
     });
 
-    const fixedIds = new Set(rice.concat(counting, drinks));
+    const fixedIds = new Set(riceRoleIds.concat(counting, drinks));
     let pool = present.filter((m) => !fixedIds.has(m.id));
 
     let needDish = Math.max(0, dishes) * PER_DISH;
@@ -102,8 +110,11 @@ window.App = window.App || {};
       warnings.push("人力不足，這一餐沒有排蓋便當，那兩個名額讓給打菜。");
     }
 
-    // 剩下的人包餐盒；抬飲料的兩位抬完之後也一起包
-    const boxing = pool.map((m) => m.id);
+    // 剩下的人包餐盒；抬飲料的兩位抬完之後也一起包，不打飯的那餐打飯的兩位也一起包
+    const boxingMembers = servesRice
+      ? pool
+      : pool.concat(present.filter((m) => riceRoleIds.indexOf(m.id) !== -1)).sort(rosterOrder);
+    const boxing = boxingMembers.map((m) => m.id);
 
     return {
       assignments: {

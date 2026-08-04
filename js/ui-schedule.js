@@ -35,14 +35,15 @@ window.App.UI = window.App.UI || {};
 
   function mealCard(mealKey, mealData) {
     const S = window.App.State;
-    const dishes = mealData.dishes != null ? mealData.dishes : "?";
+    const dishes = mealData.dishes != null ? mealData.dishes : 0;
     return `
       <div class="meal-card">
-        <h3>${S.MEAL_LABELS[mealKey]} <span class="hint">一飯${dishes}菜</span></h3>
+        <h3>${S.MEAL_LABELS[mealKey]} <span class="hint">${S.menuLabel(mealKey, dishes)}</span></h3>
         <p class="section-tag">打菜</p>
         ${S.SERVING_ROWS.map((rowKey) => {
           const ids = window.App.DutyView.servingRowIds(mealData, rowKey);
-          if (!ids.length && (rowKey === "lid" || rowKey === "boxing")) return "";
+          // 沒人的行就不佔位（早餐沒有打飯；人不夠時沒有蓋便當）
+          if (!ids.length && ["rice", "lid", "boxing"].indexOf(rowKey) !== -1) return "";
           return dutyLine(rowKey, ids);
         }).join("")}
         <p class="section-tag">勤務</p>

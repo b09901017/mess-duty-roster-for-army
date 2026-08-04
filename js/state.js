@@ -49,6 +49,17 @@ window.App = window.App || {};
   const SERVING_FIXED_ROLES = ["rice", "count", "drinks"];
   const SERVING_ROLE_LABELS = { rice: "打飯", count: "計數", drinks: "抬飲料" };
 
+  // 早餐不打飯，所以那一餐沒有「打飯」這一行，固定打飯的兩位改成一起包餐盒
+  const NO_RICE_MEALS = ["breakfast"];
+  function servesRiceAt(meal) {
+    return NO_RICE_MEALS.indexOf(meal) === -1;
+  }
+
+  /** 菜色的說法，例如「一飯6菜」；不打飯的那餐就只寫「2菜」 */
+  function menuLabel(meal, dishes) {
+    return servesRiceAt(meal) ? `一飯${dishes}菜` : `${dishes}菜`;
+  }
+
   // 一天只做一次、不分餐別的勤務
   const DAILY_DUTY_ROWS = ["shopping", "laundryUp", "laundryDown"];
 
@@ -464,6 +475,9 @@ window.App = window.App || {};
     SERVING_ROWS,
     SERVING_FIXED_ROLES,
     SERVING_ROLE_LABELS,
+    NO_RICE_MEALS,
+    servesRiceAt,
+    menuLabel,
     DUTY_KEYS,
     MEAL_KEYS,
     MEAL_LABELS,

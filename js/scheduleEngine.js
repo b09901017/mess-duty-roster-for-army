@@ -132,7 +132,8 @@ window.App = window.App || {};
       const serving = window.App.ServingLine.computeServingLine(
         present,
         newDutyCounts,
-        window.App.State.menuSizeFor(dateStr, meal)
+        St.menuSizeFor(dateStr, meal),
+        St.servesRiceAt(meal)
       );
       serving.warnings.forEach((w) => warnings.push(`${St.MEAL_LABELS[meal]}：${w}`));
 

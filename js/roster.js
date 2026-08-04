@@ -23,6 +23,7 @@ window.App = window.App || {};
       dischargeDate: null,
       leaveMode: window.App.State.LEAVE_AFTER_LUNCH,
       fixedRole: null,
+      servingRole: null,
       skipLaundry: false,
       skipDinnerCleanup: false,
     });

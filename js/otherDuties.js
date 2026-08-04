@@ -5,7 +5,7 @@ window.App = window.App || {};
   "use strict";
 
   const COHORT_ORDER = ["261", "263"];
-  const DUTY_ORDER = ["foodwaste", "lunchbag", "floor", "wipe"];
+  const DUTY_ORDER = ["foodwaste", "floor", "wipe"];
 
   function stableCompare(a, b) {
     const ca = COHORT_ORDER.indexOf(a.cohort);

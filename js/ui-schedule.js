@@ -16,7 +16,9 @@ window.App.UI = window.App.UI || {};
   }
 
   function namesOrDash(ids) {
-    return ids && ids.length ? ids.map(memberLabel).join("、") : "（無）";
+    if (!ids || !ids.length) return "（無）";
+    // 每個「261-13 簡宏穎」自己不換行，只在頓號處折，手機上才不會把編號跟名字拆兩行
+    return ids.map((id) => `<span class="name-token">${memberLabel(id)}</span>`).join("、");
   }
 
   function dutyLineText(duty, text) {
@@ -31,14 +33,23 @@ window.App.UI = window.App.UI || {};
     return dutyLineText(duty, namesOrDash(ids));
   }
 
-  function mealCard(mealKey, mealData, activeMembers) {
+  function mealCard(mealKey, mealData) {
+    const S = window.App.State;
+    const dishes = mealData.dishes != null ? mealData.dishes : "?";
     return `
       <div class="meal-card">
-        <h3>${window.App.State.MEAL_LABELS[mealKey]}</h3>
-        ${window.App.State.MEAL_DUTY_ROWS.map((rowKey) => {
+        <h3>${S.MEAL_LABELS[mealKey]} <span class="hint">一飯${dishes}菜</span></h3>
+        <p class="section-tag">打菜</p>
+        ${S.SERVING_ROWS.map((rowKey) => {
+          const ids = window.App.DutyView.servingRowIds(mealData, rowKey);
+          if (!ids.length && (rowKey === "lid" || rowKey === "boxing")) return "";
+          return dutyLine(rowKey, ids);
+        }).join("")}
+        <p class="section-tag">勤務</p>
+        ${S.MEAL_DUTY_ROWS.map((rowKey) => {
           const description = window.App.DutyView.mealRowDescription(rowKey);
           if (description) return dutyLineText(rowKey, description);
-          return dutyLine(rowKey, window.App.DutyView.mealRowIds(mealData, rowKey, activeMembers));
+          return dutyLine(rowKey, window.App.DutyView.mealRowIds(mealData, rowKey));
         }).join("")}
       </div>`;
   }
@@ -101,9 +112,7 @@ window.App.UI = window.App.UI || {};
         : ""
       }
       <div class="meal-grid">
-        ${window.App.State.MEAL_KEYS.map((meal) =>
-          mealCard(meal, schedule.meals[meal], window.App.State.activeMembersOn(selectedDate))
-        ).join("")}
+        ${window.App.State.MEAL_KEYS.map((meal) => mealCard(meal, schedule.meals[meal])).join("")}
         ${dailyCard(schedule.daily)}
       </div>
     `;

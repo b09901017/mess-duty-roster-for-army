@@ -128,10 +128,19 @@ window.App = window.App || {};
       // 抬便當上車、上樓：除了洗碗的人與固定送便當的兩位以外，當餐在場的人全部一起幫忙
       const carryIds = present.filter((m) => !excludeIds.has(m.id)).map((m) => m.id);
 
+      // 打菜流程：打完菜之後才做勤務，兩者是同一批人、不同時段
+      const serving = window.App.ServingLine.computeServingLine(
+        present,
+        newDutyCounts,
+        window.App.State.menuSizeFor(dateStr, meal)
+      );
+      serving.warnings.forEach((w) => warnings.push(`${St.MEAL_LABELS[meal]}：${w}`));
+
       meals[meal] = {
+        serving: serving.assignments,
+        dishes: serving.dishes,
         dishwash: dishwashIds,
         foodwaste: otherAssign.foodwaste,
-        lunchbag: otherAssign.lunchbag,
         carryVehicle: carryIds.slice(),
         carryUpstairs: carryIds.slice(),
         floor: otherAssign.floor,
@@ -144,9 +153,11 @@ window.App = window.App || {};
         departed: dayMembers.filter((m) => !St.isActiveOn(m, dateStr, meal)).map((m) => m.id),
       };
 
+      incrementCounts(newDutyCounts, serving.assignments.serveDish, "serveDish");
+      incrementCounts(newDutyCounts, serving.assignments.lid, "lid");
+      incrementCounts(newDutyCounts, serving.assignments.boxing, "boxing");
       incrementCounts(newDutyCounts, dishwashIds, "dishwash");
       incrementCounts(newDutyCounts, otherAssign.foodwaste, "foodwaste");
-      incrementCounts(newDutyCounts, otherAssign.lunchbag, "lunchbag");
       incrementCounts(newDutyCounts, otherAssign.floor, "floor");
       incrementCounts(newDutyCounts, otherAssign.wipe, "wipe");
       incrementCounts(newDutyCounts, meals[meal].cleanup, "cleanup");

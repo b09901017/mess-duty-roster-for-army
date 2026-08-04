@@ -44,6 +44,8 @@ window.App.UI = window.App.UI || {};
     if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
     // 洗衣籃是全員一起輪，但名冊上勾「免排洗衣籃」的人不算
     if (dutyKey === "laundry") return members.filter((m) => !m.skipLaundry);
+    // 打菜、蓋便當、包餐盒只在「沒有固定角色」的人之間輪
+    if (["serveDish", "lid", "boxing"].indexOf(dutyKey) !== -1) return members.filter((m) => !m.servingRole);
     return members.filter((m) => m.fixedRole !== "delivery");
   }
 

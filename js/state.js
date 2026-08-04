@@ -8,7 +8,7 @@ window.App = window.App || {};
 
   // 名冊種子每次異動就 +1。舊資料（含從雲端還原的）rosterVersion 對不上時，
   // 會自動換上新名冊，這樣改名冊不用叫使用者清快取，也不會被雲端的舊名冊蓋回去。
-  const ROSTER_VERSION = 3;
+  const ROSTER_VERSION = 4;
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
@@ -20,10 +20,13 @@ window.App = window.App || {};
   const DUTY_KEYS = [
     "dishwash",
     "foodwaste",
-    "lunchbag",
     "wipe",
     "floor",
     "cleanup",
+    // 打菜流程裡需要輪替的三項
+    "serveDish",
+    "lid",
+    "boxing",
     // 撤收再按餐別分開記，用來平衡「誰老是被排到早餐撤收」
     "cleanupBreakfast",
     "cleanupLunch",
@@ -37,17 +40,14 @@ window.App = window.App || {};
 
   // 每一餐會列出來的勤務欄位（依顯示順序）。
   // 抬上車與抬上樓是同一批人，顯示時合併成一行，所以這裡只放 carry 這個代表欄位。
-  const MEAL_DUTY_ROWS = [
-    "dishwash",
-    "foodwaste",
-    "lunchbag",
-    "wipe",
-    "floor",
-    "delivery",
-    "carry",
-    "lunchbagHelp",
-    "cleanup",
-  ];
+  const MEAL_DUTY_ROWS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "carry", "cleanup"];
+
+  // 打菜流程的欄位（依實際進行順序）
+  const SERVING_ROWS = ["rice", "serveDish", "lid", "count", "drinks", "boxing"];
+
+  // 打菜流程裡人選固定、不參與輪替的角色
+  const SERVING_FIXED_ROLES = ["rice", "count", "drinks"];
+  const SERVING_ROLE_LABELS = { rice: "打飯", count: "計數", drinks: "抬飲料" };
 
   // 一天只做一次、不分餐別的勤務
   const DAILY_DUTY_ROWS = ["shopping", "laundryUp", "laundryDown"];
@@ -55,12 +55,16 @@ window.App = window.App || {};
   const DUTY_LABELS = {
     dishwash: "洗碗",
     foodwaste: "廚餘",
-    lunchbag: "包便當袋子",
     carryVehicle: "抬便當上車",
     carryUpstairs: "抬便當上樓",
     carry: "抬便當上車、上樓",
-    lunchbagHelp: "一起幫忙包便當",
     wipe: "擦桌子",
+    rice: "打飯",
+    serveDish: "打菜",
+    lid: "蓋便當",
+    count: "計數",
+    drinks: "抬飲料＋包餐盒",
+    boxing: "包餐盒",
     floor: "清地板收垃圾",
     delivery: "送便當",
     cleanup: "撤收",
@@ -74,9 +78,13 @@ window.App = window.App || {};
   const DUTY_SHORT_LABELS = {
     dishwash: "洗碗",
     foodwaste: "廚餘",
-    lunchbag: "包便當",
-    lunchbagHelp: "幫忙包便當",
     carry: "抬上車/上樓",
+    rice: "打飯",
+    serveDish: "打菜",
+    lid: "蓋便當",
+    count: "計數",
+    drinks: "抬飲料",
+    boxing: "包餐盒",
     carryVehicle: "抬上車",
     carryUpstairs: "抬上樓",
     wipe: "擦桌子",
@@ -92,11 +100,15 @@ window.App = window.App || {};
   const DUTY_ICONS = {
     dishwash: "🍽️",
     foodwaste: "🗑️",
-    lunchbag: "🍱",
     carry: "🚚",
     carryVehicle: "🚚",
     carryUpstairs: "🏢",
-    lunchbagHelp: "🤝",
+    rice: "🍚",
+    serveDish: "🥢",
+    lid: "🍱",
+    count: "🔢",
+    drinks: "🥤",
+    boxing: "📦",
     wipe: "🧽",
     floor: "🧹",
     delivery: "🛵",
@@ -127,6 +139,16 @@ window.App = window.App || {};
    */
   const LEAVE_AFTER_LUNCH = "afterLunch";
   const LEAVE_IMMEDIATE = "immediate";
+
+  // 打菜流程的固定角色（使用者指定）
+  const SEED_SERVING_ROLES = {
+    "263-2": "rice", // 呂胤玄 打飯
+    "263-10": "rice", // 田權楨 打飯
+    "263-7": "count", // 顏允彣 計數
+    "261-4": "count", // 鄧旭辰 計數
+    "263-1": "drinks", // 陳東霖 抬飲料
+    "261-3": "drinks", // 陳柏翰 抬飲料
+  };
 
   function seedMembers() {
     // [姓名, 離開日, 離開方式, 加入日]
@@ -172,6 +194,7 @@ window.App = window.App || {};
         dischargeDate: dischargeDate || null,
         leaveMode: leaveMode,
         fixedRole: seq === 7 || seq === 8 ? "delivery" : null,
+        servingRole: SEED_SERVING_ROLES[`261-${seq}`] || null,
         skipLaundry: isNewcomer,
         skipDinnerCleanup: isNewcomer,
       });
@@ -187,6 +210,7 @@ window.App = window.App || {};
         dischargeDate: dischargeDate || null,
         leaveMode: leaveMode,
         fixedRole: null,
+        servingRole: SEED_SERVING_ROLES[`263-${seq}`] || null,
         skipLaundry: false,
         skipDinnerCleanup: false,
       });
@@ -195,19 +219,30 @@ window.App = window.App || {};
   }
 
   function defaultDutySizeTable() {
-    // 依使用者給的預設縮減順序：包便當-1,-1 → 廚餘-1 → 洗碗-1 → 包便當-1 → 廚餘-1
+    /*
+     * 包便當袋子改由「打菜流程」的包餐盒負責，原本的 4 個名額平均加到
+     * 洗碗、廚餘、擦桌子、清地板各一個。人變少時的縮減順序（使用者指定）：
+     * 擦桌子 → 廚餘 → 清地板 → 洗碗 → 廚餘，之後洗碗、廚餘輪流再減。
+     * 每一列加上固定 2 位送便當，剛好等於該餐出勤人數。
+     */
     return [
-      { minActiveCount: 20, dishwash: 7, foodwaste: 5, lunchbag: 4, wipe: 1, floor: 1 },
-      { minActiveCount: 19, dishwash: 7, foodwaste: 4, lunchbag: 4, wipe: 1, floor: 1 },
-      { minActiveCount: 18, dishwash: 6, foodwaste: 4, lunchbag: 4, wipe: 1, floor: 1 },
-      { minActiveCount: 17, dishwash: 6, foodwaste: 4, lunchbag: 3, wipe: 1, floor: 1 },
-      { minActiveCount: 16, dishwash: 6, foodwaste: 4, lunchbag: 2, wipe: 1, floor: 1 },
-      { minActiveCount: 15, dishwash: 6, foodwaste: 3, lunchbag: 2, wipe: 1, floor: 1 },
-      { minActiveCount: 14, dishwash: 5, foodwaste: 3, lunchbag: 2, wipe: 1, floor: 1 },
-      { minActiveCount: 13, dishwash: 5, foodwaste: 3, lunchbag: 1, wipe: 1, floor: 1 },
-      { minActiveCount: 12, dishwash: 5, foodwaste: 2, lunchbag: 1, wipe: 1, floor: 1 },
-      { minActiveCount: 11, dishwash: 5, foodwaste: 2, lunchbag: 0, wipe: 1, floor: 1 },
+      { minActiveCount: 20, dishwash: 8, foodwaste: 6, wipe: 2, floor: 2 },
+      { minActiveCount: 19, dishwash: 8, foodwaste: 5, wipe: 2, floor: 2 },
+      { minActiveCount: 18, dishwash: 8, foodwaste: 5, wipe: 1, floor: 2 },
+      { minActiveCount: 17, dishwash: 8, foodwaste: 4, wipe: 1, floor: 2 },
+      { minActiveCount: 16, dishwash: 8, foodwaste: 4, wipe: 1, floor: 1 },
+      { minActiveCount: 15, dishwash: 7, foodwaste: 4, wipe: 1, floor: 1 },
+      { minActiveCount: 14, dishwash: 7, foodwaste: 3, wipe: 1, floor: 1 },
+      { minActiveCount: 13, dishwash: 6, foodwaste: 3, wipe: 1, floor: 1 },
+      { minActiveCount: 12, dishwash: 6, foodwaste: 2, wipe: 1, floor: 1 },
+      { minActiveCount: 11, dishwash: 5, foodwaste: 2, wipe: 1, floor: 1 },
+      { minActiveCount: 10, dishwash: 5, foodwaste: 1, wipe: 1, floor: 1 },
     ];
+  }
+
+  /** 每餐幾道菜的預設值；某天某餐要不一樣就存進 menuSizes 覆蓋 */
+  function defaultMenuDefaults() {
+    return { breakfast: 2, lunch: 6, dinner: 6 };
   }
 
   function defaultWashState() {
@@ -252,6 +287,9 @@ window.App = window.App || {};
       shoppingRoster: defaultShoppingRoster(),
       shoppingTimes: defaultShoppingTimes(),
       shoppingUntil: DEFAULT_SHOPPING_UNTIL,
+      menuDefaults: defaultMenuDefaults(),
+      // 只存跟預設不一樣的那幾格：{ "2026-08-05": { lunch: 4 } }
+      menuSizes: {},
 
       // ── 來源資料（真正被使用者決定的東西）────────────────────────────
       // 已確定紀錄的日期。整個系統的班表都是由名冊、設定與這份清單「重播」推導出來的，
@@ -286,6 +324,7 @@ window.App = window.App || {};
       laundryState: Object.assign({}, base.laundryState, parsed.laundryState),
       shoppingRoster: Object.assign({}, base.shoppingRoster, parsed.shoppingRoster),
       shoppingTimes: Object.assign({}, base.shoppingTimes, parsed.shoppingTimes),
+      menuDefaults: Object.assign({}, base.menuDefaults, parsed.menuDefaults),
     });
     // 舊版的「臨時登記採買」已改成固定星期表；撤收也不再用固定分組
     delete merged.shoppingLog;
@@ -378,6 +417,13 @@ window.App = window.App || {};
     return activeMembersByCohortOn(cohort, todayStr());
   }
 
+  /** 某天某餐幾道菜：有覆蓋值就用覆蓋值，否則用預設 */
+  function menuSizeFor(dateStr, meal) {
+    const override = (state.menuSizes || {})[dateStr];
+    if (override && override[meal] != null) return override[meal];
+    return (state.menuDefaults || {})[meal] || 0;
+  }
+
   function memberById(id) {
     return state.members.find((m) => m.id === id);
   }
@@ -415,6 +461,9 @@ window.App = window.App || {};
     LAUNDRY_START,
     LEAVE_AFTER_LUNCH,
     LEAVE_IMMEDIATE,
+    SERVING_ROWS,
+    SERVING_FIXED_ROLES,
+    SERVING_ROLE_LABELS,
     DUTY_KEYS,
     MEAL_KEYS,
     MEAL_LABELS,
@@ -444,6 +493,8 @@ window.App = window.App || {};
     defaultShoppingTimes,
     defaultLaundryState,
     defaultShoppingRoster,
+    defaultMenuDefaults,
+    menuSizeFor,
     onSave,
     saveWithoutNotifying,
     migrate,

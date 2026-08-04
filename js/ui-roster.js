@@ -51,6 +51,17 @@ window.App.UI = window.App.UI || {};
             m.skipDinnerCleanup ? "checked" : ""
           }> 晚上撤收</label>
         </td>
+        <td data-label="打菜固定角色">
+          <select class="serving-role-select" data-id="${m.id}">
+            <option value="">（輪替）</option>
+            ${St.SERVING_FIXED_ROLES.map(
+              (role) =>
+                `<option value="${role}"${m.servingRole === role ? " selected" : ""}>${
+                  St.SERVING_ROLE_LABELS[role]
+                }</option>`
+            ).join("")}
+          </select>
+        </td>
         <td data-label="操作">
           <button type="button" class="set-delivery-btn" data-id="${m.id}">${
             m.fixedRole === "delivery" ? "取消送便當" : "設為送便當"
@@ -101,7 +112,7 @@ window.App.UI = window.App.UI || {};
         </p>
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>操作</th></tr></thead>
+          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>打菜固定角色</th><th>操作</th></tr></thead>
           <tbody>${members261.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
@@ -111,7 +122,7 @@ window.App.UI = window.App.UI || {};
         <h2>263 梯 (${activeCount263} 現役 / ${members263.length} 總數)</h2>
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>操作</th></tr></thead>
+          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>打菜固定角色</th><th>操作</th></tr></thead>
           <tbody>${members263.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
@@ -128,7 +139,7 @@ window.App.UI = window.App.UI || {};
   }
 
   function emptyRow() {
-    return `<tr><td colspan="7" class="empty-state">尚無人員</td></tr>`;
+    return `<tr><td colspan="8" class="empty-state">尚無人員</td></tr>`;
   }
 
   function bindEvents() {
@@ -173,6 +184,15 @@ window.App.UI = window.App.UI || {};
     root.querySelectorAll(".skip-dinner-cleanup").forEach((box) => {
       box.addEventListener("change", () => {
         window.App.Roster.updateMember(box.dataset.id, { skipDinnerCleanup: box.checked });
+        window.App.ScheduleEngine.rebuildAll();
+        render();
+        rerenderAll();
+      });
+    });
+
+    root.querySelectorAll(".serving-role-select").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        window.App.Roster.updateMember(sel.dataset.id, { servingRole: sel.value || null });
         window.App.ScheduleEngine.rebuildAll();
         render();
         rerenderAll();

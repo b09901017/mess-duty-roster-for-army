@@ -2,10 +2,11 @@
  * 把班表資料轉成「某個人某一餐要做什麼」的共用邏輯，班表檢視與文字班表都用這個，
  * 避免兩邊各寫一份導致顯示不一致。
  *
+ * 一餐分兩段：先是「打菜流程」（打飯打菜的當下），打完之後才是「勤務」。
+ *
  * 重點規則（使用者確認過）：
  *   - 抬便當上車、上樓：除了洗碗的人與固定送便當的兩位以外，當餐在場的人全部一起幫忙。
- *   - 幫忙包便當：同樣扣掉洗碗與送便當的人，再扣掉本來就被排到包便當袋子的那幾位。
- *   - 採買的人早餐、中餐不在，兩者都不算。
+ *   - 採買的人早餐、中餐不在，兩段都不算。
  */
 window.App = window.App || {};
 
@@ -13,7 +14,7 @@ window.App = window.App || {};
   "use strict";
 
   // 個人分工的顯示順序：先講他被排到的主要勤務，再接幫忙的事，最後才是撤收
-  const PRIMARY_DUTIES = ["dishwash", "foodwaste", "lunchbag", "wipe", "floor", "delivery"];
+  const PRIMARY_DUTIES = ["dishwash", "foodwaste", "wipe", "floor", "delivery"];
 
   function has(mealData, dutyKey, memberId) {
     return ((mealData && mealData[dutyKey]) || []).includes(memberId);
@@ -29,17 +30,21 @@ window.App = window.App || {};
     return has(mealData, "departed", memberId);
   }
 
-  /** 這一餐這個人要不要幫忙包便當（洗碗的、送便當的、以及人不在的不用） */
-  function helpsWithLunchbag(mealData, memberId) {
-    if (isAbsent(mealData, memberId) || hasDeparted(mealData, memberId)) return false;
-    if (has(mealData, "lunchbag", memberId)) return false; // 他本來就是包便當的
-    if (has(mealData, "dishwash", memberId)) return false;
-    if (has(mealData, "delivery", memberId)) return false;
-    return true;
+  /** 某人某一餐在打菜流程裡做什麼（回傳短標籤陣列） */
+  function mealServingLabels(mealData, memberId) {
+    const St = window.App.State;
+    if (hasDeparted(mealData, memberId)) return [St.DUTY_SHORT_LABELS.departed];
+    if (isAbsent(mealData, memberId)) return [St.DUTY_SHORT_LABELS.shopping];
+    const serving = (mealData && mealData.serving) || {};
+    const labels = [];
+    St.SERVING_ROWS.forEach((role) => {
+      if ((serving[role] || []).includes(memberId)) labels.push(St.DUTY_SHORT_LABELS[role]);
+    });
+    return labels;
   }
 
   /**
-   * 某人某一餐的勤務清單（回傳短標籤陣列，例如 ["廚餘","包便當","抬上車","抬上樓"]）
+   * 某人某一餐打完菜之後的勤務清單（回傳短標籤陣列，例如 ["廚餘","抬上車/上樓","撤收"]）
    */
   function mealDutyLabels(mealData, memberId) {
     const short = window.App.State.DUTY_SHORT_LABELS;
@@ -51,7 +56,6 @@ window.App = window.App || {};
       if (has(mealData, duty, memberId)) labels.push(short[duty]);
     });
 
-    if (helpsWithLunchbag(mealData, memberId)) labels.push(short.lunchbagHelp);
     if (has(mealData, "carryVehicle", memberId)) labels.push(short.carry);
     if (has(mealData, "cleanup", memberId)) labels.push(short.cleanup);
 
@@ -70,19 +74,18 @@ window.App = window.App || {};
     return labels;
   }
 
-  /** 某一餐「幫忙包便當」的人有哪些 */
-  function lunchbagHelpers(mealData, activeMembers) {
-    return activeMembers.filter((m) => helpsWithLunchbag(mealData, m.id)).map((m) => m.id);
-  }
-
   /**
    * 依「顯示用的欄位名稱」取出那一餐的人員清單。
    * carry 與 lunchbagHelp 是顯示用的合併欄位，不是班表資料裡真正的欄位。
    */
-  function mealRowIds(mealData, rowKey, activeMembers) {
+  function mealRowIds(mealData, rowKey) {
     if (rowKey === "carry") return (mealData && mealData.carryVehicle) || [];
-    if (rowKey === "lunchbagHelp") return lunchbagHelpers(mealData, activeMembers);
     return (mealData && mealData[rowKey]) || [];
+  }
+
+  /** 打菜流程某一列的人員 */
+  function servingRowIds(mealData, rowKey) {
+    return ((mealData && mealData.serving) || {})[rowKey] || [];
   }
 
   /*
@@ -98,10 +101,10 @@ window.App = window.App || {};
 
   window.App.DutyView = {
     mealDutyLabels,
+    mealServingLabels,
     dailyDutyLabels,
-    helpsWithLunchbag,
-    lunchbagHelpers,
     mealRowIds,
+    servingRowIds,
     mealRowDescription,
     isAbsent,
     hasDeparted,

@@ -47,7 +47,6 @@ window.App.UI = window.App.UI || {};
 
   function buildMealText(dateStr, schedule, displayNames) {
     const S = window.App.State;
-    const active = activeSorted(dateStr);
     const nameList = (ids) => (ids && ids.length ? ids.map((id) => displayNames[id] || id).join("、") : "無");
 
     const lines = [];
@@ -55,11 +54,24 @@ window.App.UI = window.App.UI || {};
 
     S.MEAL_KEYS.forEach((mealKey) => {
       const mealData = schedule.meals[mealKey];
+      const dishes = mealData.dishes != null ? mealData.dishes : S.menuSizeFor(dateStr, mealKey);
       lines.push("");
-      lines.push(`【${S.MEAL_LABELS[mealKey]}】`);
+      lines.push(`【${S.MEAL_LABELS[mealKey]}】一飯${dishes}菜`);
+
+      lines.push("");
+      lines.push("〔打菜〕");
+      S.SERVING_ROWS.forEach((rowKey) => {
+        const ids = window.App.DutyView.servingRowIds(mealData, rowKey);
+        // 蓋便當、包餐盒可能沒人，沒人就不用列出來佔行
+        if (!ids.length && (rowKey === "lid" || rowKey === "boxing")) return;
+        lines.push(`${S.DUTY_LABELS[rowKey]}：${nameList(ids)}`);
+      });
+
+      lines.push("");
+      lines.push("〔勤務〕");
       S.MEAL_DUTY_ROWS.forEach((rowKey) => {
         const description = window.App.DutyView.mealRowDescription(rowKey);
-        const value = description || nameList(window.App.DutyView.mealRowIds(mealData, rowKey, active));
+        const value = description || nameList(window.App.DutyView.mealRowIds(mealData, rowKey));
         lines.push(`${S.DUTY_LABELS[rowKey]}：${value}`);
       });
     });
@@ -98,10 +110,22 @@ window.App.UI = window.App.UI || {};
         byCohort[cohort].forEach((m) => {
           lines.push("");
           lines.push(displayNames[m.id]);
+
           S.MEAL_KEYS.forEach((mealKey) => {
-            const labels = window.App.DutyView.mealDutyLabels(schedule.meals[mealKey], m.id);
-            lines.push(`  ${S.MEAL_LABELS[mealKey].slice(0, 1)}：${labels.length ? labels.join("、") : "休息"}`);
+            const mealData = schedule.meals[mealKey];
+            const head = S.MEAL_LABELS[mealKey].slice(0, 1);
+            const DV = window.App.DutyView;
+            // 已離營或去採買的人，那一餐就一句話帶過
+            if (DV.hasDeparted(mealData, m.id) || DV.isAbsent(mealData, m.id)) {
+              lines.push(`  ${head}：${DV.mealDutyLabels(mealData, m.id)[0]}`);
+              return;
+            }
+            const serving = DV.mealServingLabels(mealData, m.id);
+            const duties = DV.mealDutyLabels(mealData, m.id);
+            lines.push(`  ${head}　打菜：${serving.length ? serving.join("、") : "無"}`);
+            lines.push(`  　　勤務：${duties.length ? duties.join("、") : "無"}`);
           });
+
           const dailyLabels = window.App.DutyView.dailyDutyLabels(schedule.daily, m.id);
           if (dailyLabels.length) lines.push(`  另：${dailyLabels.join("、")}`);
           const note = ((schedule.daily || {}).shopping || []).includes(m.id) ? shoppingNote(dateStr) : "";

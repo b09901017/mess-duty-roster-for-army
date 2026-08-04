@@ -233,6 +233,31 @@ th {
   }
 }
 
+/*
+ * 每餐菜量表：只有「日期＋三餐」四欄，就算在手機上也塞得下，
+ * 所以刻意不用 responsive-table 的堆疊卡片版型（14天×4列會變成一條超長的捲軸）。
+ */
+.menu-table th,
+.menu-table td {
+  padding: 6px;
+  text-align: center;
+}
+
+.menu-table .menu-date {
+  white-space: nowrap;
+  font-weight: 500;
+  background: transparent;
+  text-align: left;
+}
+
+.menu-table .menu-input {
+  width: 100%;
+  min-width: 44px;
+  max-width: 68px;
+  padding: 6px 4px;
+  text-align: center;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -309,6 +334,14 @@ th {
   font-size: 1.05rem;
 }
 
+.section-tag {
+  margin: 10px 0 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  letter-spacing: 1px;
+}
+
 .duty-line {
   display: flex;
   justify-content: space-between;
@@ -329,6 +362,14 @@ th {
 
 .duty-names {
   text-align: right;
+  /* 中文預設可以在任兩個字之間斷行，會把「陳東霖」拆成「陳東／霖」。
+     keep-all 讓一個名字黏在一起，只在頓號處換行。 */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.name-token {
+  white-space: nowrap;
 }
 
 /* 公平性總覽 — 每項勤務一個圓餅圖 + 對照表 */

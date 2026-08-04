@@ -105,17 +105,76 @@ async function handleEvent(event, req) {
   await reply(event.replyToken, messages, token);
 }
 
+/*
+ * 用瀏覽器或 curl 打這個網址（GET）會回自我診斷。
+ * LINE 後台按 Verify 失敗時，先看這裡：
+ *   - 看到這份 JSON      → 函式活著，問題出在簽章或環境變數
+ *   - 看到 Vercel 登入頁 → 是 Vercel 的 Deployment Protection 擋掉，請求根本沒進來
+ *   - 404               → 網址打錯
+ * 只回布林值，不會吐出任何密鑰內容。
+ */
+function diagnostics() {
+  const has = (name) => Boolean(process.env[name]);
+  const required = [
+    "LINE_CHANNEL_SECRET",
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "FIREBASE_API_KEY",
+    "FIREBASE_PROJECT_ID",
+    "ROSTER_ROOM_CODE",
+  ];
+  const missing = required.filter((name) => !has(name));
+  return {
+    ok: missing.length === 0,
+    service: "打飯班小幫手 LINE webhook",
+    hint: "這個網址要填進 LINE Developers 的 Webhook URL。LINE 會用 POST 呼叫，GET 只會看到這份診斷。",
+    環境變數: {
+      LINE_CHANNEL_SECRET: has("LINE_CHANNEL_SECRET"),
+      LINE_CHANNEL_ACCESS_TOKEN: has("LINE_CHANNEL_ACCESS_TOKEN"),
+      FIREBASE_API_KEY: has("FIREBASE_API_KEY"),
+      FIREBASE_PROJECT_ID: has("FIREBASE_PROJECT_ID"),
+      ROSTER_ROOM_CODE: has("ROSTER_ROOM_CODE"),
+      PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || null,
+      LIFF_ID: has("LIFF_ID"),
+      LIFF_CHANNEL_ID: has("LIFF_CHANNEL_ID"),
+      STATE_READ_KEY: has("STATE_READ_KEY"),
+    },
+    缺少的必填項: missing,
+    下一步:
+      missing.length > 0
+        ? `到 Vercel 的 Settings → Environment Variables 補上 ${missing.join("、")}，然後一定要 Redeploy 才會生效。`
+        : "環境變數都有了。如果 Verify 還是 401，請看 Vercel 的 Functions log，裡面會寫是簽章不符還是讀不到 body。",
+  };
+}
+
 module.exports = async (req, res) => {
+  if (req.method === "GET") {
+    res.status(200).json(diagnostics());
+    return;
+  }
   if (req.method !== "POST") {
     res.status(405).json({ error: "只接受 POST" });
     return;
   }
 
   const secret = process.env.LINE_CHANNEL_SECRET;
-  const rawBody = await readRawBody(req);
+  if (!secret) {
+    console.error("LINE_CHANNEL_SECRET 沒有設定，無法驗證簽章。到 Vercel 設好環境變數並 Redeploy。");
+    res.status(500).json({ error: "伺服器沒有設定 LINE_CHANNEL_SECRET" });
+    return;
+  }
 
-  if (!verifySignature(rawBody, req.headers["x-line-signature"], secret)) {
-    res.status(401).json({ error: "簽章驗證失敗" });
+  const signature = req.headers["x-line-signature"];
+  const { raw: rawBody, source } = await readRawBody(req);
+
+  if (!verifySignature(rawBody, signature, secret)) {
+    // 把判斷得出來的線索寫進 log，Vercel 的 Functions log 看得到
+    console.error(
+      `簽章驗證失敗：有無 X-Line-Signature=${Boolean(signature)}、body 來源=${source}、body 長度=${rawBody.length}。` +
+        (rawBody.length === 0
+          ? "body 是空的，通常是平台先把 body parse 掉了。"
+          : "body 讀得到，那多半是 LINE_CHANNEL_SECRET 填錯（注意不是 Channel access token）。")
+    );
+    res.status(401).json({ error: "簽章驗證失敗", bodySource: source, bodyLength: rawBody.length });
     return;
   }
 

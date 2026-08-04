@@ -10,6 +10,7 @@
   "scripts": {
     "check": "node scripts/check-syntax.js",
     "bot:demo": "node scripts/bot-demo.js",
-    "audit": "node scripts/audit-rules.js"
+    "audit": "node scripts/audit-rules.js",
+    "test:signature": "node scripts/test-signature.js"
   }
 }

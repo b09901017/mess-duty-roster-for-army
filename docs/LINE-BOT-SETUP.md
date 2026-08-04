@@ -103,6 +103,10 @@
 2. **Use webhook** 打開
 3. 按 **Verify**，要顯示 **Success**
 
+> **Webhook URL 一定要用正式網域**（`專案名.vercel.app`），不要用部署專屬網址
+> （`專案名-a1b2c3d4-你的帳號.vercel.app` 那種帶亂碼的）——後者受 Vercel
+> Deployment Protection 保護，LINE 會拿到 401。
+
 ---
 
 ## 步驟 4：建 LIFF（公平性總覽的「看完整」）
@@ -139,12 +143,62 @@
 
 ## 出問題的話
 
+### 先做這一步：打開自我診斷
+
+用瀏覽器（或 curl）打開 **`https://你的網址/api/webhook`**。這是 GET，不會觸發任何動作，只會回一份診斷，而且**只回布林值、不會吐出密鑰內容**。
+
+```bash
+curl -i https://你的網址/api/webhook
+```
+
+看到什麼決定接下來查哪裡：
+
+| 你看到 | 代表 | 怎麼修 |
+|--------|------|--------|
+| 一份 JSON，`"ok": true` | 函式活著、環境變數齊全 | 問題在簽章，往下看「Verify 顯示 401」 |
+| 一份 JSON，`"ok": false` | 函式活著，但**環境變數缺**（JSON 裡的「缺少的必填項」會列出來） | 補上，然後**一定要 Redeploy** |
+| **Vercel 的登入頁 / `Authentication Required`** | **Deployment Protection 把請求擋掉了**，根本沒進到程式 | 見下面 |
+| 404 | 網址打錯 | 確認結尾是 `/api/webhook` |
+
+### Verify 顯示 401 Unauthorized
+
+依照上面的診斷結果，401 只會是這三種之一：
+
+**① Vercel Deployment Protection（最常見）**
+
+Vercel 會擋掉未登入的請求並回 401，LINE 當然過不了。特別容易發生在**你把「部署專屬網址」貼進 LINE**（像 `專案名-a1b2c3d4-你的帳號.vercel.app` 這種帶一串亂碼的），那種網址一定受保護。
+
+- 改用**正式網域**：Vercel 專案首頁 **Domains** 區塊最上面那個乾淨的網址（`專案名.vercel.app`）
+- 如果正式網域也被擋：**Settings → Deployment Protection → Vercel Authentication** 關掉（或設成只保護 Preview）
+
+同一件事也會讓公平性總覽那張圖load不出來，因為 LINE 的伺服器也要能匿名抓 `/api/fairness`。
+
+**② `LINE_CHANNEL_SECRET` 沒設或設錯**
+
+診斷 JSON 會直接告訴你有沒有設。最常見的錯是**把 Channel access token 貼到 Channel secret**——這是兩個不同的值：
+
+- Channel secret：在 **Basic settings** 分頁，短短一串
+- Channel access token：在 **Messaging API** 分頁，很長一串
+
+改完之後**一定要 Redeploy**，Vercel 的環境變數不會套用到已經部署好的版本。
+
+**③ 原始 body 讀不到**
+
+程式已經用四種方式輪流去拿原始 body（平台有沒有先 parse 掉都接得住，`npm run test:signature` 驗過），正常不會遇到。真的遇到的話，Vercel 的 **Deployments → 該筆 → Functions** log 會寫：
+
+```
+簽章驗證失敗：有無 X-Line-Signature=true、body 來源=empty、body 長度=0
+```
+
+`body 長度=0` 就是這一種，把這行貼給我。反過來如果長度不是 0，那就是上面的 ②。
+
+### 其他症狀
+
 | 症狀 | 通常是 |
 |------|--------|
-| Verify 按下去失敗 | Webhook URL 打錯，或環境變數填完沒有 Redeploy |
 | 機器人已讀不回 | `LINE_CHANNEL_ACCESS_TOKEN` 沒填／填錯；或 Auto-reply 沒關 |
 | 回「讀不到班表資料」 | `FIREBASE_*` 或 `ROSTER_ROOM_CODE` 填錯，或 App 還沒上傳過 |
-| 卡片出來但圖是破的 | `PUBLIC_BASE_URL` 沒填，導致圖片網址推錯 |
+| 卡片出來但圖是破的 | `PUBLIC_BASE_URL` 沒填，或 Deployment Protection 擋住 `/api/fairness` |
 | 「看完整」點進去說沒有權限 | `LIFF_CHANNEL_ID` 沒填，或 LIFF 的 scope 沒勾 `openid` |
 | 群組裡拉不進機器人 | **Allow bot to join group chats** 沒開 |
 
@@ -159,6 +213,9 @@ Vercel 的 **Deployments → 該筆 → Functions** 可以看到每次呼叫的 
 ```bash
 # 用 repo 裡的種子名冊，把 9 張卡片的內容和公平性 PNG 印出來／存檔
 node scripts/bot-demo.js 2026-08-04 ./out
+
+# 驗證「不管平台有沒有先 parse body，簽章都算得對」
+npm run test:signature
 
 # 起一個模擬 Vercel 的本機伺服器（不連 Firestore）
 MOCK_ROSTER=1 STATE_READ_KEY=devkey node scripts/dev-server.js 8123
@@ -179,5 +236,11 @@ MOCK_ROSTER=1 STATE_READ_KEY=devkey node scripts/dev-server.js 8123
   而且不用為了四個中文詞在 repo 裡塞一份幾 MB 的字型——
   圖裡不放文字，項目名稱由卡片用同樣的 2×2 排版寫在圖下面。
 - **卡片文字跟網頁「文字班表」同源**（`js/textFormat.js`），改一邊兩邊都會變。
-- **簽章驗證用原始 body**。`api/webhook.js` 結尾的 `config.api.bodyParser = false`
-  就是為了這個，拿掉的話 `X-Line-Signature` 會驗不過。
+- **簽章驗證用原始 body**。這是最容易壞的一點：平台預設會把 JSON body parse 掉，
+  stream 也就被讀完了，這時候再去讀 `req` 只會拿到空字串，簽章一定對不起來。
+  `api/_lib/line.js` 的 `readRawBody()` 依序試四條路（body 是字串／Buffer／
+  `req.rawBody`／stream 還沒被讀），最後一條保險是把已經 parse 的物件重新序列化
+  ——LINE 送的是 compact JSON、非 ASCII 不轉義、鍵是字串，所以還原得回同一份位元組。
+  `npm run test:signature` 會把這四種情況都跑一遍。
+- **`/api/webhook` 的 GET 是自我診斷**，回報環境變數有沒有設（只回布林值），
+  用來分辨「函式沒活」「環境變數缺」「Vercel Deployment Protection 擋掉」三種 401。

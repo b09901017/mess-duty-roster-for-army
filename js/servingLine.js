@@ -70,6 +70,8 @@ window.App = window.App || {};
     const drinks = byRole("drinks");
 
     window.App.State.SERVING_FIXED_ROLES.forEach((role) => {
+      // 早餐不打飯，那一餐當然不用提醒打飯缺人
+      if (role === "rice" && !servesRice) return;
       const got = byRole(role).length;
       if (got !== 2) {
         warnings.push(

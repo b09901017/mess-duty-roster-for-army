@@ -37,12 +37,14 @@ window.App = window.App || {};
   /**
    * 誰「應該」被排到這項勤務。固定送便當的兩位不會被排到洗碗、雜項勤務與撤收，
    * 所以算公平的時候不能把他們算進去，否則他們的 0 次會被誤判成「做太少」。
-   * 洗衣籃是全員一起輪（含送便當的兩位）。
+   * 洗衣籃與撤收是全員一起輪（含送便當的兩位）。
    * 打菜、蓋便當、包餐盒只在「沒有打菜固定角色」的人之間輪。
    */
   function eligibleFor(dutyKey, members) {
     if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
     if (dutyKey === "laundry") return members.filter((m) => !m.skipLaundry);
+    // 撤收現在全員都排（送便當的兩位只排得到晚上，但還是有排）
+    if (dutyKey === "cleanup") return members.slice();
     if (["serveDish", "lid", "boxing"].indexOf(dutyKey) !== -1) return members.filter((m) => !m.servingRole);
     return members.filter((m) => m.fixedRole !== "delivery");
   }

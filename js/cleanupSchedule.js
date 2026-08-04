@@ -4,7 +4,7 @@
  * 規則：
  *   - 每天把可排撤收的人「剛好分完」到早、中、晚三餐，每人每天固定做一次。
  *   - 人數早上最輕鬆（16人時是 4/6/6）。
- *   - 固定送便當的兩位不排撤收。
+ *   - 固定送便當的兩位早、中在外面跑便當，撤收只排得到晚上。
  *   - 那一餐洗碗的人，那一餐不排撤收（洗碗本身就夠久了）。
  *   - 名冊勾「免排晚上撤收」的人不能排晚餐。
  *   - 採買的人早、中不在；退伍當天晚上已離營。
@@ -43,9 +43,17 @@ window.App = window.App || {};
    */
   const OVERFLOW_PRIORITY = { breakfast: 3, lunch: 1, dinner: 2 };
 
-  /** 固定送便當的兩位不排撤收 */
+  /*
+   * 全員都排撤收，包含固定送便當的兩位——但他們早餐、中餐要跑便當，
+   * 只有晚上排得了（見 canDoCleanup）。
+   */
   function cleanupEligible(members) {
-    return members.filter((m) => m.fixedRole !== "delivery");
+    return members.slice();
+  }
+
+  /** 送便當的兩位早、中在外面跑便當，撤收只能排晚上 */
+  function deliveryOnlyDinner(member, meal) {
+    return member.fixedRole === "delivery" && meal !== "dinner";
   }
 
   /**
@@ -164,6 +172,7 @@ window.App = window.App || {};
     const canDo = (member, meal) => {
       if (!available(member.id, meal)) return false;
       if (washing[meal].has(member.id)) return false;
+      if (deliveryOnlyDinner(member, meal)) return false;
       if (meal === "dinner" && member.skipDinnerCleanup) return false;
       return true;
     };
@@ -246,5 +255,5 @@ window.App = window.App || {};
     return { assignments, sizes, desiredSizes, warnings };
   }
 
-  window.App.CleanupSchedule = { computeCleanupDay, cleanupSizes, cleanupEligible, PER_MEAL_COUNT_KEY };
+  window.App.CleanupSchedule = { computeCleanupDay, cleanupSizes, cleanupEligible, deliveryOnlyDinner, PER_MEAL_COUNT_KEY };
 })();

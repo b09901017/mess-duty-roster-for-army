@@ -18,9 +18,10 @@ window.App = window.App || {};
    * 瀏覽器裡留著舊表（洗7廚5擦1地1＋包便當4），包便當欄位已經不存在，
    * 19 人只排掉 16 個，剩 3 個人沒有勤務。
    * 所以只要預設值有變就把這個號碼 +1，舊資料會自動換上新的預設值。
+   * 涵蓋：勤務人數對照表、預設菜量、採買結束日。
    * 使用者自己逐日調過的菜量（menuSizes）不會被動到。
    */
-  const CONFIG_VERSION = 2;
+  const CONFIG_VERSION = 3;
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
@@ -278,7 +279,8 @@ window.App = window.App || {};
   }
 
   // 採買只做到這一天為止（含）。之後就不用採買了，留空代表沒有結束日。
-  const DEFAULT_SHOPPING_UNTIL = "2026-08-04";
+  // 8/3 是最後一次採買，8/4 起就不用採買了
+  const DEFAULT_SHOPPING_UNTIL = "2026-08-03";
 
   /** 採買集合時間（0=週日 … 6=週六），顯示在文字班表上 */
   function defaultShoppingTimes() {
@@ -369,6 +371,7 @@ window.App = window.App || {};
     if (parsed.configVersion !== CONFIG_VERSION) {
       merged.dutySizeTable = base.dutySizeTable;
       merged.menuDefaults = base.menuDefaults;
+      merged.shoppingUntil = base.shoppingUntil;
       merged.configVersion = CONFIG_VERSION;
     }
     return merged;

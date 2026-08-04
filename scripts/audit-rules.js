@@ -6,10 +6,21 @@
  *   node scripts/dev-server.js 8123 &   （或任何靜態伺服器）
  *   BASE=http://127.0.0.1:8123 node scripts/audit-rules.js
  */
-const { chromium } = require('playwright');
+/* playwright 可能是全域安裝的，兩個位置都試 */
+function loadChromium() {
+  const candidates = ['playwright', 'playwright-core', '/opt/node22/lib/node_modules/playwright'];
+  for (const name of candidates) {
+    try { return require(name).chromium; } catch (err) { /* 換下一個 */ }
+  }
+  console.error('找不到 playwright，請先 npm i -D playwright 或用全域安裝的版本。');
+  process.exit(1);
+}
+const chromium = loadChromium();
 
 (async () => {
-  const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+  const b = await chromium.launch(
+    process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}
+  );
   const page = await b.newPage({ viewport: { width: 1280, height: 900 } });
   const errs = [];
   page.on('pageerror', e => errs.push(e.message));
@@ -126,8 +137,12 @@ const { chromium } = require('playwright');
         const wantLid = poolSize >= dishes*2 + 2 ? 2 : 0;
         if ((sv.lid||[]).length !== wantLid) fail(d, `${meal} 蓋便當應 ${wantLid} 人，實際 ${(sv.lid||[]).length} 人`);
 
-        // 撤收不能有送便當的人，也不能有那一餐洗碗的人
-        (m.cleanup || []).forEach(id => { if (delivery.includes(id)) fail(d, `${meal} 送便當的 ${nm(id)} 被排到撤收`); });
+        // 送便當的兩位只能排晚餐撤收（早、中在外面跑便當）；那一餐洗碗的人也不能排
+        if (meal !== 'dinner') {
+          (m.cleanup || []).forEach(id => {
+            if (delivery.includes(id)) fail(d, `${meal} 送便當的 ${nm(id)} 被排到早/中撤收`);
+          });
+        }
         (m.cleanup || []).forEach(id => {
           if ((m.dishwash || []).includes(id)) fail(d, `${meal} ${nm(id)} 同一餐既洗碗又撤收`);
         });
@@ -143,12 +158,13 @@ const { chromium } = require('playwright');
         return St.MEAL_KEYS.some(meal => {
           if (!St.isActiveOn(mm, d, meal)) return false;
           if (shopper === id && (meal === 'breakfast' || meal === 'lunch')) return false;
+          if (mm.fixedRole === 'delivery' && meal !== 'dinner') return false;  // 送便當只排晚上
           if (mm.skipDinnerCleanup && meal === 'dinner') return false;
           if ((sc.meals[meal].dishwash || []).includes(id)) return false;  // 那一餐在洗碗
           return true;
         });
       };
-      const eligibleCleanup = [...activeIds].filter(id => !delivery.includes(id) && canDoSomeCleanup(id));
+      const eligibleCleanup = [...activeIds].filter(canDoSomeCleanup);
       const missing = eligibleCleanup.filter(id => !cleanupAll.includes(id));
       if (missing.length) fail(d, `撤收沒排到：${names(missing)}`);
       const bN = sc.meals.breakfast.cleanup.length, lN = sc.meals.lunch.cleanup.length, dN = sc.meals.dinner.cleanup.length;
@@ -157,11 +173,12 @@ const { chromium } = require('playwright');
        * 洗碗的人不排撤收 + 新人免排晚上撤收，兩條加起來有時候會讓晚餐根本坐不滿，
        * 那時候人只能往早/中擠，不算演算法排錯。
        */
-      const cleanupPool = active.filter(m => m.fixedRole !== 'delivery');
+      const cleanupPool = active.slice();
       const desired = St2.CleanupSchedule.cleanupSizes(cleanupPool.length);
       const capacityOf = meal => cleanupPool.filter(x => {
         if (!St.isActiveOn(x, d, meal)) return false;
         if (shopper === x.id && meal !== 'dinner') return false;
+        if (x.fixedRole === 'delivery' && meal !== 'dinner') return false;
         if (meal === 'dinner' && x.skipDinnerCleanup) return false;
         if ((sc.meals[meal].dishwash || []).includes(x.id)) return false;
         return true;

@@ -10,6 +10,18 @@ window.App = window.App || {};
   // 會自動換上新名冊，這樣改名冊不用叫使用者清快取，也不會被雲端的舊名冊蓋回去。
   const ROSTER_VERSION = 4;
 
+  /*
+   * 勤務人數對照表與預設菜量的版本。
+   *
+   * 這兩份東西存在瀏覽器裡，而讀檔時是「存的蓋過預設值」，所以程式改了預設值也不會生效——
+   * 之前把「包便當袋子」拿掉、把那四個名額分給洗碗/廚餘/擦桌子/清地板時就踩到這個坑：
+   * 瀏覽器裡留著舊表（洗7廚5擦1地1＋包便當4），包便當欄位已經不存在，
+   * 19 人只排掉 16 個，剩 3 個人沒有勤務。
+   * 所以只要預設值有變就把這個號碼 +1，舊資料會自動換上新的預設值。
+   * 使用者自己逐日調過的菜量（menuSizes）不會被動到。
+   */
+  const CONFIG_VERSION = 2;
+
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
   // 洗衣籃輪替從這天開始；這天只有睡前抬下去，沒有昨天的籃子要抬上來
@@ -252,8 +264,9 @@ window.App = window.App || {};
   }
 
   /** 每餐幾道菜的預設值；某天某餐要不一樣就存進 menuSizes 覆蓋 */
+  // 中晚餐最多五道菜（五菜＝打飯2＋打菜10＋蓋便當2＋計數2＋抬飲料2＝18人，人夠）
   function defaultMenuDefaults() {
-    return { breakfast: 2, lunch: 6, dinner: 6 };
+    return { breakfast: 2, lunch: 5, dinner: 5 };
   }
 
   function defaultWashState() {
@@ -293,6 +306,7 @@ window.App = window.App || {};
     return {
       version: 5,
       rosterVersion: ROSTER_VERSION,
+      configVersion: CONFIG_VERSION,
       members,
       dutySizeTable: defaultDutySizeTable(),
       shoppingRoster: defaultShoppingRoster(),
@@ -346,6 +360,16 @@ window.App = window.App || {};
       merged.members = base.members;
       merged.shoppingUntil = base.shoppingUntil;
       merged.rosterVersion = ROSTER_VERSION;
+    }
+
+    /*
+     * 勤務人數對照表與預設菜量有改版就換上新的。
+     * 不這樣做的話，瀏覽器裡的舊表會永遠蓋過程式裡的新預設值（詳見 CONFIG_VERSION 的說明）。
+     */
+    if (parsed.configVersion !== CONFIG_VERSION) {
+      merged.dutySizeTable = base.dutySizeTable;
+      merged.menuDefaults = base.menuDefaults;
+      merged.configVersion = CONFIG_VERSION;
     }
     return merged;
   }

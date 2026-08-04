@@ -9,6 +9,7 @@
   },
   "scripts": {
     "check": "node scripts/check-syntax.js",
-    "bot:demo": "node scripts/bot-demo.js"
+    "bot:demo": "node scripts/bot-demo.js",
+    "audit": "node scripts/audit-rules.js"
   }
 }

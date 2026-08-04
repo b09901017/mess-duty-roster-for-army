@@ -107,10 +107,12 @@ window.App = window.App || {};
       availableForMeal
     );
 
+    // 撤收要知道每一餐誰在洗碗（洗碗的人那一餐不排撤收），所以一定要排在洗碗之後
     const cleanupDay = window.App.CleanupSchedule.computeCleanupDay(
       dayMembers,
       snapshot.dutyCounts,
-      availableForMeal
+      availableForMeal,
+      washDay.assignments
     );
     (cleanupDay.warnings || []).forEach((w) => warnings.push(w));
 
@@ -125,8 +127,22 @@ window.App = window.App || {};
       const otherPool = present.filter((m) => !excludeIds.has(m.id));
       const otherAssign = window.App.OtherDuties.assignOtherDuties(otherPool, newDutyCounts, sizeByMeal[meal]);
 
-      // 抬便當上車、上樓：除了洗碗的人與固定送便當的兩位以外，當餐在場的人全部一起幫忙
-      const carryIds = present.filter((m) => !excludeIds.has(m.id)).map((m) => m.id);
+      // 抬便當上車、上樓：除了固定送便當的兩位以外，當餐在場的人全部一起（洗碗的人也要）
+      const carryIds = present.filter((m) => !deliveryIds.includes(m.id)).map((m) => m.id);
+
+      /*
+       * 對照表的每一列加上送便當兩位應該剛好等於出勤人數。對不起來的時候不會有人
+       * 完全沒事（大家都要抬便當），但代表有人那一餐只抬便當、沒有分到其他勤務，
+       * 通常是對照表沒跟上人數變動，所以提醒一下。
+       */
+      const cfg = sizeByMeal[meal];
+      const spare = present.length - (cfg.dishwash + cfg.foodwaste + cfg.wipe + cfg.floor + deliveryIds.length);
+      if (spare > 0) {
+        warnings.push(
+          `${St.MEAL_LABELS[meal]}出勤 ${present.length} 人，但勤務設定只排掉 ${present.length - spare} 人，` +
+            `有 ${spare} 人只抬便當、沒有其他勤務。可到「勤務設定」把這一列的人數補齊。`
+        );
+      }
 
       // 打菜流程：打完菜之後才做勤務，兩者是同一批人、不同時段
       const serving = window.App.ServingLine.computeServingLine(

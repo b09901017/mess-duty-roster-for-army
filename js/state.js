@@ -79,9 +79,10 @@ window.App = window.App || {};
   // 換水只有早餐有（撤收完才做），沒人的餐別顯示時會自動略過
   const MEAL_DUTY_ROWS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "carry", "cleanup", "water"];
 
-  // 換水只在這一餐排
+  // 換水只在這一餐排，而且從這天才開始（之前的日子沒有這項勤務）
   const WATER_MEAL = "breakfast";
   const WATER_COUNT = 5;
+  const WATER_START = "2026-08-06";
 
   // 打菜流程的欄位（依實際進行順序）
   const SERVING_ROWS = ["rice", "serveDish", "lid", "count", "drinks", "boxing"];
@@ -685,6 +686,7 @@ window.App = window.App || {};
     WASH_COHORT_ORDER,
     WATER_MEAL,
     WATER_COUNT,
+    WATER_START,
     DAILY_DUTY_ROWS,
     DUTY_LABELS,
     DUTY_SHORT_LABELS,

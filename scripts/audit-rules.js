@@ -209,7 +209,8 @@ const chromium = loadChromium();
       });
       const waterCap = active.filter(x => !x.skipWater && St.isActiveOn(x, d, 'breakfast')
         && !(sc.meals.breakfast.cleanup || []).includes(x.id)).length;
-      const waterWant = Math.min(St.WATER_COUNT, waterCap);
+      // 換水從 WATER_START 才開始，之前的日子不該有
+      const waterWant = d < St.WATER_START ? 0 : Math.min(St.WATER_COUNT, waterCap);
       if (water.length !== waterWant) fail(d, `換水 ${water.length} 人，應為 ${waterWant} 人`);
       water.forEach(id => {
         const mm = St.memberById(id);

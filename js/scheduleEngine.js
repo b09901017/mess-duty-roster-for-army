@@ -251,13 +251,23 @@ window.App = window.App || {};
 
     /*
      * 換水是早餐撤收「之後」才做的，所以要等撤收排完，而且不能排到同一批人。
+     *
+     * 兩種情況不自己排：
+     *   1. 還沒開始的日子（WATER_START 之前）——這項勤務那時候根本不存在。
+     *   2. 被鎖定的日子——一律照公布版，公布版沒寫換水就是沒有。
      */
-    const waterDay = window.App.WaterSchedule.computeWaterDay(
-      snapshot.waterState,
-      dayMembers,
-      meals[St.WATER_MEAL].cleanup,
-      availableForMeal
-    );
+    const waterOverride = override && override.meals && override.meals[St.WATER_MEAL];
+    let waterDay = { ids: [], newWaterState: snapshot.waterState, warnings: [] };
+    if (waterOverride) {
+      waterDay.ids = (waterOverride.water || []).slice();
+    } else if (dateStr >= St.WATER_START) {
+      waterDay = window.App.WaterSchedule.computeWaterDay(
+        snapshot.waterState,
+        dayMembers,
+        meals[St.WATER_MEAL].cleanup,
+        availableForMeal
+      );
+    }
     waterDay.warnings.forEach((w) => warnings.push(w));
     meals[St.WATER_MEAL].water = waterDay.ids.slice();
     incrementCounts(newDutyCounts, waterDay.ids, "water");

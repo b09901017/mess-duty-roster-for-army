@@ -43,6 +43,8 @@ window.App = window.App || {};
   function eligibleFor(dutyKey, members) {
     if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
     if (dutyKey === "laundry") return members.filter((m) => !m.skipLaundry);
+    // 換水跟洗衣籃一樣是全員輪（含送便當的兩位），只有名冊勾「免排換水」的招員不算
+    if (dutyKey === "water") return members.filter((m) => !m.skipWater);
     // 撤收現在全員都排（送便當的兩位只排得到晚上，但還是有排）
     if (dutyKey === "cleanup") return members.slice();
     if (["serveDish", "lid", "boxing"].indexOf(dutyKey) !== -1) return members.filter((m) => !m.servingRole);

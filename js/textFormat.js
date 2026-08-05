@@ -126,9 +126,13 @@ window.App = window.App || {};
     });
 
     const extra = DV.dailyDutyLabels(schedule.daily, member.id).slice();
+    /*
+     * 採買的人早、中那兩格已經寫「採買」了，這裡不用再重複一行。
+     * 只有設了集合時間才值得多寫一行，因為那是那兩格看不到的資訊。
+     */
     if (((schedule.daily || {}).shopping || []).includes(member.id)) {
       const note = shoppingNote(dateStr);
-      extra.push(note ? `採買（${note}）` : "採買");
+      if (note) extra.push(`採買（${note}）`);
     }
 
     return {

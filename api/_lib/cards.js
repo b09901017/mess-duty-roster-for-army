@@ -1,31 +1,50 @@
 /*
- * 把一天的班表組成 LINE Flex Message 的 9 張卡片（可左右滑動）。
+ * 把一天的班表組成 LINE Flex Message 的 10 張卡片（可左右滑動）。
  *
  * 順序（使用者指定）：
  *   1 早餐勤務   2 中餐勤務   3 晚餐勤務
  *   4 261梯 01-08 個人分工
  *   5 263梯 01-05 個人分工
  *   6 263梯 06-10 個人分工
- *   7 261梯 09-13 個人分工
- *   8 全日勤務
- *   9 公平性總覽（圖片 ＋「看完整」按鈕進 LIFF）
+ *   7 招員（261梯 09-13）個人分工
+ *   8 旅部連 個人分工
+ *   9 全日勤務
+ *   10 公平性總覽（圖片 ＋「看完整」按鈕）
  *
  * 卡片內容跟網頁「文字班表」分頁是同一份資料（js/textFormat.js），不會兩邊長歪。
  */
 
 const INK = "#4a3f35";
 const MUTED = "#9a8f84";
-const PRIMARY = "#e87a52";
-const ACCENT = "#3f8f7f";
-const COHORT_COLORS = { 261: "#e87a52", 263: "#3486a0", 旅部: "#7a6bb5" };
 
-/** 卡片切法：{ cohort, from, to }，from/to 是序號範圍（含頭含尾） */
+/*
+ * 每張卡片的標題底色。
+ *
+ * 分成三個色系，滑到哪一區一眼就知道：
+ *   三餐   暖色，照時間由淺到深（早＝金、中＝紅、晚＝暗紫），像一天的光線變化
+ *   個人   冷色，每個梯次一個色（261 青綠／263 藍／招員 綠／旅部連 紫）
+ *   其他   中性色（全日＝暖褐、公平性＝深灰藍）
+ *
+ * 兩件事用 scratchpad 的腳本驗過：
+ *   1. 白色標題與 80% 白的副標在每個底色上都達到 WCAG 4.5 / 3.0
+ *   2. 相鄰兩張卡片的 RGB 距離都 ≥ 60，滑動時看得出換了一張
+ *      （兩張 263 刻意用同一色，因為本來就是同一梯）
+ */
+const CARD_COLORS = {
+  breakfast: "#96701A",
+  lunch: "#C0442A",
+  dinner: "#7E3A63",
+  daily: "#7A5F45",
+  fairness: "#2F3A47",
+};
+
+/** 卡片切法：from/to 是序號範圍（含頭含尾）；title 與 color 各組自己一套 */
 const PERSON_CARDS = [
-  { cohort: "261", from: 1, to: 8 },
-  { cohort: "263", from: 1, to: 5 },
-  { cohort: "263", from: 6, to: 10 },
-  { cohort: "261", from: 9, to: 13 },
-  { cohort: "旅部", from: 1, to: 8 },
+  { cohort: "261", from: 1, to: 8, title: "261 梯", color: "#0F7B6C" },
+  { cohort: "263", from: 1, to: 5, title: "263 梯", color: "#2A5FB0" },
+  { cohort: "263", from: 6, to: 10, title: "263 梯", color: "#2A5FB0" },
+  { cohort: "261", from: 9, to: 13, title: "招員", color: "#3F7D3A" },
+  { cohort: "旅部", from: 1, to: 8, title: "旅部連", color: "#6B4FA8" },
 ];
 
 function text(content, opts) {
@@ -45,8 +64,8 @@ function header(title, subtitle, color) {
   };
 }
 
-function sectionTag(label) {
-  return text(label, { size: "xs", weight: "bold", color: PRIMARY, margin: "lg" });
+function sectionTag(label, color) {
+  return text(label, { size: "xs", weight: "bold", color: color, margin: "lg" });
 }
 
 /** 一個項目兩行：標號＋名稱在上，人員名單在下 */
@@ -64,17 +83,18 @@ function dutyRow(no, label, value, step) {
 
 function mealBubble(App, dateStr, schedule, mealKey, names) {
   const TF = App.TextFormat;
+  const color = CARD_COLORS[mealKey];
   const block = TF.mealRows(dateStr, schedule, mealKey, names);
-  const contents = [sectionTag("打菜")];
+  const contents = [sectionTag("打菜", color)];
   block.serving.forEach((row, i) => contents.push(dutyRow(i + 1, row.label, row.value, TF.step)));
   contents.push({ type: "separator", margin: "xl", color: "#f0e4d8" });
-  contents.push(sectionTag("勤務"));
+  contents.push(sectionTag("勤務", color));
   block.duties.forEach((row, i) => contents.push(dutyRow(i + 1, row.label, row.value, TF.step)));
 
   return {
     type: "bubble",
     size: "giga",
-    header: header(block.heading, `${TF.formatDateHeader(dateStr)}　${block.menu}`, PRIMARY),
+    header: header(block.heading, `${TF.formatDateHeader(dateStr)}　${block.menu}`, color),
     body: { type: "box", layout: "vertical", paddingAll: "14px", contents },
   };
 }
@@ -110,7 +130,14 @@ function personBubble(App, dateStr, schedule, names, card) {
     (m) => m.cohort === card.cohort && m.seq >= card.from && m.seq <= card.to
   );
 
-  const range = `${String(card.from).padStart(2, "0")}-${String(card.to).padStart(2, "0")}`;
+  /*
+   * 標題的號碼範圍照「這天實際有誰」算，不是照設定的上下界。
+   * 旅部連設定寫到 8 號是留空間給之後加人，但目前只有 4 位，
+   * 寫「01-08」會讓人以為有人漏掉了。
+   */
+  const range = members.length
+    ? `${String(members[0].seq).padStart(2, "0")}-${String(members[members.length - 1].seq).padStart(2, "0")}`
+    : `${String(card.from).padStart(2, "0")}-${String(card.to).padStart(2, "0")}`;
   const contents = members.length
     ? members.map((m) => personBlock(App, dateStr, schedule, m, names))
     : [text("這個區間目前沒有人。", { size: "sm", color: MUTED, margin: "lg" })];
@@ -119,9 +146,9 @@ function personBubble(App, dateStr, schedule, names, card) {
     type: "bubble",
     size: "giga",
     header: header(
-      `${(App.State.COHORT_LABELS || {})[card.cohort] || card.cohort}　${range}`,
+      `${card.title}　${range}`,
       `${TF.formatDateHeader(dateStr)}　個人分工　${members.length} 人`,
-      COHORT_COLORS[card.cohort] || PRIMARY
+      card.color
     ),
     body: { type: "box", layout: "vertical", paddingAll: "14px", contents },
   };
@@ -137,7 +164,7 @@ function dailyBubble(App, dateStr, schedule, names) {
   return {
     type: "bubble",
     size: "giga",
-    header: header("全日勤務", `${TF.formatDateHeader(dateStr)}　採買與洗衣籃`, ACCENT),
+    header: header("全日勤務", `${TF.formatDateHeader(dateStr)}　採買與洗衣籃`, CARD_COLORS.daily),
     body: { type: "box", layout: "vertical", paddingAll: "14px", contents },
   };
 }
@@ -175,6 +202,7 @@ function fairnessBubble(App, dateStr, cells, imageUrl, fullUrl) {
   return {
     type: "bubble",
     size: "giga",
+    header: header("公平性總覽", `主要四項勤務　·　累計到 ${TF.formatDateHeader(dateStr)}`, CARD_COLORS.fairness),
     hero: {
       type: "image",
       url: imageUrl,
@@ -188,12 +216,6 @@ function fairnessBubble(App, dateStr, cells, imageUrl, fullUrl) {
       layout: "vertical",
       paddingAll: "14px",
       contents: [
-        text("公平性總覽", { size: "lg", weight: "bold", color: INK }),
-        text(`主要四項勤務　·　累計到 ${TF.formatDateHeader(dateStr)}`, {
-          size: "xs",
-          color: MUTED,
-          margin: "xs",
-        }),
         text("每人固定佔一格，往外伸得越長＝做越多次；顏色偏橘＝偏多，偏藍＝偏少，灰色＝公平範圍內。", {
           size: "xxs",
           color: MUTED,
@@ -212,7 +234,7 @@ function fairnessBubble(App, dateStr, cells, imageUrl, fullUrl) {
           type: "button",
           style: "primary",
           height: "sm",
-          color: PRIMARY,
+          color: CARD_COLORS.fairness,
           action: { type: "uri", label: "看完整", uri: fullUrl },
         },
       ],

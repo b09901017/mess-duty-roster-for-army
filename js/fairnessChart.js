@@ -122,6 +122,24 @@ window.App = window.App || {};
     };
   }
 
+  /**
+   * 這些圖到底算了哪幾天。
+   *
+   * 卡片以前寫「累計到 8/7」，用的是「你問的那一天」，很容易誤會成
+   * 「8/7 的勤務已經算進去了」——但 8/7 可能根本還沒排，而 8/6 排了就已經有數字。
+   * 這裡直接照真正被計入的日子回答：已確定紀錄、而且不早於 COUNTS_FROM 的那些天。
+   */
+  function countedRange() {
+    const St = window.App.State;
+    const dates = (St.get().committedDates || []).filter((d) => d >= St.COUNTS_FROM).sort();
+    if (!dates.length) {
+      return { dates: [], from: null, to: null, label: `${St.COUNTS_FROM} 起算，目前還沒有任何一天排進去` };
+    }
+    const short = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+    const span = dates.length === 1 ? short(dates[0]) : `${short(dates[0])}～${short(dates[dates.length - 1])}`;
+    return { dates, from: dates[0], to: dates[dates.length - 1], label: `已算進 ${span} 共 ${dates.length} 天` };
+  }
+
   /** 一句話講完這項勤務目前公不公平 */
   function summaryLine(model) {
     if (!model || model.empty) return "還沒有人做過這項勤務。";
@@ -150,6 +168,7 @@ window.App = window.App || {};
     fairBand,
     bucketFor,
     chartModel,
+    countedRange,
     summaryLine,
   };
 })();

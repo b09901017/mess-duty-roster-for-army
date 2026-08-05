@@ -72,13 +72,12 @@ window.App = window.App || {};
       serving.push({ label: S.DUTY_LABELS[rowKey], value: joinNames(ids, names) });
     });
 
-    const duties = [];
-    S.MEAL_DUTY_ROWS.forEach((rowKey) => {
+    const duties = S.MEAL_DUTY_ROWS.map((rowKey) => {
       const description = DV.mealRowDescription(rowKey);
-      const ids = DV.mealRowIds(mealData, rowKey);
-      // 換水只有早餐有，其他餐不用列一行「換水：無」佔位
-      if (!description && !ids.length && rowKey === "water") return;
-      duties.push({ label: S.DUTY_LABELS[rowKey], value: description || joinNames(ids, names) });
+      return {
+        label: S.DUTY_LABELS[rowKey],
+        value: description || joinNames(DV.mealRowIds(mealData, rowKey), names),
+      };
     });
 
     return { heading: S.MEAL_LABELS[mealKey], menu: S.menuLabel(mealKey, dishes), serving, duties };

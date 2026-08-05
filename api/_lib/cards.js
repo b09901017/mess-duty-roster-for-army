@@ -25,26 +25,29 @@ const MUTED = "#9a8f84";
  *   個人   冷色，每個梯次一個色（261 青綠／263 藍／招員 綠／旅部連 紫）
  *   其他   中性色（全日＝暖褐、公平性＝深灰藍）
  *
- * 兩件事用 scratchpad 的腳本驗過：
+ * 全部都退了一點飽和度（維持原本的明度，只把彩度收到約七成），
+ * 顏色柔和一些、看久不刺眼，白字的對比不受影響。
+ *
+ * 兩件事由 npm run check:colors 把關：
  *   1. 白色標題與 80% 白的副標在每個底色上都達到 WCAG 4.5 / 3.0
- *   2. 相鄰兩張卡片的 RGB 距離都 ≥ 60，滑動時看得出換了一張
+ *   2. 相鄰兩張卡片的色差（CIE Lab ΔE）都 ≥ 20，滑動時看得出換了一張
  *      （兩張 263 刻意用同一色，因為本來就是同一梯）
  */
 const CARD_COLORS = {
-  breakfast: "#96701A",
-  lunch: "#C0442A",
-  dinner: "#7E3A63",
-  daily: "#7A5F45",
-  fairness: "#2F3A47",
+  breakfast: "#8A6C2C",
+  lunch: "#AC523B",
+  dinner: "#77455E",
+  daily: "#725D4B",
+  fairness: "#39424D",
 };
 
 /** 卡片切法：from/to 是序號範圍（含頭含尾）；title 與 color 各組自己一套 */
 const PERSON_CARDS = [
-  { cohort: "261", from: 1, to: 8, title: "261 梯", color: "#0F7B6C" },
-  { cohort: "263", from: 1, to: 5, title: "263 梯", color: "#2A5FB0" },
-  { cohort: "263", from: 6, to: 10, title: "263 梯", color: "#2A5FB0" },
-  { cohort: "261", from: 9, to: 13, title: "招員", color: "#3F7D3A" },
-  { cohort: "旅部", from: 1, to: 8, title: "旅部連", color: "#6B4FA8" },
+  { cohort: "261", from: 1, to: 8, title: "261 梯", color: "#256B61" },
+  { cohort: "263", from: 1, to: 5, title: "263 梯", color: "#3B639E" },
+  { cohort: "263", from: 6, to: 10, title: "263 梯", color: "#3B639E" },
+  { cohort: "261", from: 9, to: 13, title: "招員", color: "#477043" },
+  { cohort: "旅部", from: 1, to: 8, title: "旅部連", color: "#6D5A9C" },
 ];
 
 function text(content, opts) {
@@ -99,8 +102,11 @@ function mealBubble(App, dateStr, schedule, mealKey, names) {
   };
 }
 
-/** 一個人一段：粗體名字，底下三餐的打菜與勤務用換行擠在同一個 text 裡（省 JSON 體積） */
-function personBlock(App, dateStr, schedule, member, names) {
+/**
+ * 一個人一段：粗體名字，底下三餐的打菜與勤務用換行擠在同一個 text 裡（省 JSON 體積）。
+ * 名字用整張卡片的主色，一眼看得出「這張是哪一梯的」，滑過去也比較好認。
+ */
+function personBlock(App, dateStr, schedule, member, names, color) {
   const person = App.TextFormat.personRows(dateStr, schedule, member, names);
   const lines = [];
   person.meals.forEach((meal) => {
@@ -118,7 +124,7 @@ function personBlock(App, dateStr, schedule, member, names) {
     layout: "vertical",
     margin: "lg",
     contents: [
-      text(`${person.seqLabel}　${person.name}`, { size: "sm", weight: "bold", color: INK }),
+      text(`${person.seqLabel}　${person.name}`, { size: "sm", weight: "bold", color: color || INK }),
       text(lines.join("\n"), { size: "xs", color: "#6b6259", margin: "xs" }),
     ],
   };
@@ -139,7 +145,7 @@ function personBubble(App, dateStr, schedule, names, card) {
     ? `${String(members[0].seq).padStart(2, "0")}-${String(members[members.length - 1].seq).padStart(2, "0")}`
     : `${String(card.from).padStart(2, "0")}-${String(card.to).padStart(2, "0")}`;
   const contents = members.length
-    ? members.map((m) => personBlock(App, dateStr, schedule, m, names))
+    ? members.map((m) => personBlock(App, dateStr, schedule, m, names, card.color))
     : [text("這個區間目前沒有人。", { size: "sm", color: MUTED, margin: "lg" })];
 
   return {
@@ -198,11 +204,16 @@ function fairnessLegend(cells) {
 }
 
 function fairnessBubble(App, dateStr, cells, imageUrl, fullUrl) {
-  const TF = App.TextFormat;
+  /*
+   * 副標寫「真正算進去的是哪幾天」，不是「你問的那一天」。
+   * 問 8/7 的勤務時，圖上算的其實是「已經確定紀錄過、而且 8/6 以後」的那些天，
+   * 寫成「累計到 8/7」會讓人以為 8/7 已經算進去了。
+   */
+  const counted = App.FairnessChart.countedRange();
   return {
     type: "bubble",
     size: "giga",
-    header: header("公平性總覽", `主要四項勤務　·　累計到 ${TF.formatDateHeader(dateStr)}`, CARD_COLORS.fairness),
+    header: header("公平性總覽", `主要四項勤務　·　${counted.label}`, CARD_COLORS.fairness),
     hero: {
       type: "image",
       url: imageUrl,

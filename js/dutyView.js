@@ -70,6 +70,7 @@ window.App = window.App || {};
   function dailyDutyLabels(daily, memberId) {
     const short = window.App.State.DUTY_SHORT_LABELS;
     const labels = [];
+    if (((daily && daily.water) || []).includes(memberId)) labels.push(short.water);
     if (((daily && daily.laundryUp) || []).includes(memberId)) labels.push(short.laundryUp);
     if (((daily && daily.laundryDown) || []).includes(memberId)) labels.push(short.laundryDown);
     return labels;

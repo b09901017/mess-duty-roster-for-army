@@ -3,6 +3,10 @@
  * LINE 卡片配色檢查。
  * 兩件事：白字要看得清楚（WCAG 4.5），以及「滑到下一張時看得出換了一張」。
  * 卡片是一張一張滑的，所以真正重要的是相鄰兩張的差距，不是全部兩兩比。
+ *
+ * 色差用 CIE Lab 的 ΔE，不是 RGB 直線距離。RGB 距離會低估「色相不同」——
+ * 金色與磚紅在 RGB 上很近，但眼睛一看就知道是兩個顏色。
+ * ΔE 大約 2 是勉強分得出來，10 以上是一望即知；這裡要求相鄰兩張 ≥ 20。
  */
 function lum(hex) {
   const c = hex.replace('#','');
@@ -13,24 +17,36 @@ function lum(hex) {
   return 0.2126*v[0] + 0.7152*v[1] + 0.0722*v[2];
 }
 const ratio = (a,b) => { const [x,y]=[lum(a),lum(b)].sort((p,q)=>q-p); return (x+0.05)/(y+0.05); };
-const rgb = a => [0,2,4].map(k=>parseInt(a.replace('#','').slice(k,k+2),16));
-const dist = (a,b) => { const [r1,g1,b1]=rgb(a),[r2,g2,b2]=rgb(b); return Math.sqrt((r1-r2)**2+(g1-g2)**2+(b1-b2)**2); };
+
+/** sRGB → CIE Lab（D65），只為了算 ΔE */
+function lab(hex) {
+  const c = hex.replace('#','');
+  const f = i => { const x = parseInt(c.slice(i,i+2),16)/255; return x <= 0.04045 ? x/12.92 : Math.pow((x+0.055)/1.055, 2.4); };
+  const [R,G,B] = [f(0),f(2),f(4)];
+  const g = t => t > 0.008856 ? Math.cbrt(t) : 7.787*t + 16/116;
+  const X = g((R*0.4124 + G*0.3576 + B*0.1805)/0.95047);
+  const Y = g( R*0.2126 + G*0.7152 + B*0.0722);
+  const Z = g((R*0.0193 + G*0.1192 + B*0.9505)/1.08883);
+  return [116*Y - 16, 500*(X-Y), 200*(Y-Z)];
+}
+const dist = (a,b) => { const A=lab(a), B=lab(b); return Math.hypot(A[0]-B[0], A[1]-B[1], A[2]-B[2]); };
+const MIN_DELTA_E = 20;
 
 /*
  * 卡片實際的滑動順序。改 api/_lib/cards.js 的顏色時，這裡也要跟著改，
  * 然後跑 npm run check:colors 確認還是通過。
  */
 const CARDS = [
-  ['早餐',   '#96701A'],
-  ['中餐',   '#C0442A'],
-  ['晚餐',   '#7E3A63'],
-  ['261梯',  '#0F7B6C'],
-  ['263梯a', '#2A5FB0'],
-  ['263梯b', '#2A5FB0'],
-  ['招員',   '#3F7D3A'],
-  ['旅部連', '#6B4FA8'],
-  ['全日',   '#7A5F45'],
-  ['公平性', '#2F3A47'],
+  ['早餐',   '#8A6C2C'],
+  ['中餐',   '#AC523B'],
+  ['晚餐',   '#77455E'],
+  ['261梯',  '#256B61'],
+  ['263梯a', '#3B639E'],
+  ['263梯b', '#3B639E'],
+  ['招員',   '#477043'],
+  ['旅部連', '#6D5A9C'],
+  ['全日',   '#725D4B'],
+  ['公平性', '#39424D'],
 ];
 
 console.log('卡片      底色      白字對比  副標對比  判定');
@@ -47,11 +63,11 @@ CARDS.forEach(([k,v]) => {
   console.log(`${k.padEnd(8)} ${v}   ${white.toFixed(2)}      ${sub.toFixed(2)}      ${ok ? '✅' : '❌'}`);
 });
 
-console.log('\n相鄰兩張的色差（滑動時看不看得出換了一張，>60 好認）：');
+console.log(`\n相鄰兩張的色差 ΔE（滑動時看不看得出換了一張，≥${MIN_DELTA_E} 好認）：`);
 for (let i=0;i<CARDS.length-1;i++) {
   const d = dist(CARDS[i][1], CARDS[i+1][1]);
   const same = CARDS[i][1] === CARDS[i+1][1];
-  if (!same && d < 60) bad++;
-  console.log(`  ${CARDS[i][0].padEnd(7)}→ ${CARDS[i+1][0].padEnd(7)} ${d.toFixed(0).padStart(4)} ${same ? '（同一梯，刻意相同）' : d>=60?'✅':'❌'}`);
+  if (!same && d < MIN_DELTA_E) bad++;
+  console.log(`  ${CARDS[i][0].padEnd(7)}→ ${CARDS[i+1][0].padEnd(7)} ${d.toFixed(0).padStart(4)} ${same ? '（同一梯，刻意相同）' : d>=MIN_DELTA_E?'✅':'❌'}`);
 }
 console.log(bad ? `\n❌ 有 ${bad} 項不合格` : '\n✅ 全部通過');

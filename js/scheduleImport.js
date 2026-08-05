@@ -32,11 +32,12 @@ window.App = window.App || {};
     清地板: "floor",
     送便當: "delivery",
     撤收: "cleanup",
-    換水: "water",
   };
 
   const DAILY_LABEL_TO_KEY = {
     採買: "shopping",
+    "換水（早上撤收完）": "water",
+    換水: "water",
     "抬洗衣籃上來（下午）": "laundryUp",
     抬洗衣籃上來: "laundryUp",
     "抬洗衣籃下去（睡前）": "laundryDown",
@@ -100,7 +101,7 @@ window.App = window.App || {};
     const warnings = [];
     const nameIndex = buildNameIndex(members);
 
-    const override = { meals: {}, daily: { shopping: [], laundryUp: [], laundryDown: [] } };
+    const override = { meals: {}, daily: { shopping: [], water: [], laundryUp: [], laundryDown: [] } };
     window.App.State.MEAL_KEYS.forEach((meal) => {
       override.meals[meal] = { serving: {}, dishes: null };
     });
@@ -229,10 +230,10 @@ window.App = window.App || {};
     清地板收垃圾: "floor",
     送便當: "delivery",
     撤收: "cleanup",
-    換水: "water",
   };
 
   const SHORT_DAILY_TO_KEY = {
+    換水: "water",
     抬洗衣籃上來: "laundryUp",
     抬洗衣籃下去: "laundryDown",
     採買: "shopping",
@@ -241,7 +242,7 @@ window.App = window.App || {};
   const MEAL_BY_HEAD = { 早: "breakfast", 中: "lunch", 晚: "dinner" };
 
   function emptyOverride() {
-    const override = { meals: {}, daily: { shopping: [], laundryUp: [], laundryDown: [] } };
+    const override = { meals: {}, daily: { shopping: [], water: [], laundryUp: [], laundryDown: [] } };
     window.App.State.MEAL_KEYS.forEach((meal) => {
       override.meals[meal] = { serving: {}, dishes: null };
       Object.keys(SHORT_DUTY_TO_KEY).forEach((label) => {

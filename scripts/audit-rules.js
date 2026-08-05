@@ -95,7 +95,7 @@ const chromium = loadChromium();
         }));
 
         // 不在的人不能出現在任何欄位
-        ['dishwash','foodwaste','wipe','floor','delivery','carryVehicle','carryUpstairs','cleanup','water']
+        ['dishwash','foodwaste','wipe','floor','delivery','carryVehicle','carryUpstairs','cleanup']
           .forEach(k => (m[k] || []).forEach(id => {
             if (absent.includes(id)) fail(d, `${meal} ${nm(id)} 去採買了卻被排到 ${k}`);
             if (!activeAt(id, meal)) fail(d, `${meal} ${nm(id)} 這一餐不在營卻被排到 ${k}`);
@@ -204,9 +204,9 @@ const chromium = loadChromium();
       }
 
       // ── 換水：只有早餐、固定 5 人、不排招員、不跟早餐撤收重複 ──
-      const water = sc.meals.breakfast.water || [];
-      ['lunch', 'dinner'].forEach(meal => {
-        if ((sc.meals[meal].water || []).length) fail(d, `${meal} 不該有換水`);
+      const water = sc.daily.water || [];
+      St.MEAL_KEYS.forEach(meal => {
+        if ((sc.meals[meal].water || []).length) fail(d, `換水不該出現在 ${meal} 的勤務欄位（應該在全日）`);
       });
       const waterCap = active.filter(x => !x.skipWater && St.isActiveOn(x, d, 'breakfast')
         && !isShopper(x.id)
@@ -228,9 +228,10 @@ const chromium = loadChromium();
        * 所以不能硬性要求他一定被排到晚餐撤收——只檢查早/中真的沒排到他。
        */
       shoppers.forEach(id => {
+        if ((sc.daily.water || []).includes(id)) fail(d, `採買的 ${nm(id)} 不該被排到換水`);
         ['breakfast', 'lunch'].forEach(meal => {
           const m = sc.meals[meal];
-          ['dishwash','foodwaste','wipe','floor','delivery','cleanup','water','carryVehicle'].forEach(k => {
+          ['dishwash','foodwaste','wipe','floor','delivery','cleanup','carryVehicle'].forEach(k => {
             if ((m[k] || []).includes(id)) fail(d, `${meal} 採買的 ${nm(id)} 不該被排到 ${k}`);
           });
           Object.keys(m.serving || {}).forEach(role => {

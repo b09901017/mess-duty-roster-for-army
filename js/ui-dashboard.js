@@ -113,9 +113,14 @@ window.App.UI = window.App.UI || {};
 
   function legend() {
     const BUCKETS = window.App.FairnessChart.BUCKETS;
+    const counted = window.App.FairnessChart.countedRange();
     return `
       <div class="card">
         <h2>怎麼看這些圖</h2>
+        <p class="hint">
+          📅 <strong>${counted.label}</strong>。
+          只有「確定紀錄」過的日子才算，還沒排、或只是預覽的那天不會出現在圖上。
+        </p>
         <p class="hint">
           <strong>每個人固定佔一格</strong>（角度都一樣，依名冊順序排），格子往外<strong>伸得越長＝做越多次</strong>；
           淺色底代表那一格目前是空的，也就是這個人還沒輪到。

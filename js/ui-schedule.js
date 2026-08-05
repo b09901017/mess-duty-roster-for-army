@@ -50,19 +50,18 @@ window.App.UI = window.App.UI || {};
         ${S.MEAL_DUTY_ROWS.map((rowKey) => {
           const description = window.App.DutyView.mealRowDescription(rowKey);
           if (description) return dutyLineText(rowKey, description);
-          const ids = window.App.DutyView.mealRowIds(mealData, rowKey);
-          if (!ids.length && rowKey === "water") return ""; // 換水只有早餐有
-          return dutyLine(rowKey, ids);
+          return dutyLine(rowKey, window.App.DutyView.mealRowIds(mealData, rowKey));
         }).join("")}
       </div>`;
   }
 
   function dailyCard(daily) {
-    if (!daily || (!(daily.laundryUp || []).length && !(daily.laundryDown || []).length)) return "";
+    const rows = window.App.State.DAILY_DUTY_ROWS.filter((duty) => ((daily || {})[duty] || []).length);
+    if (!rows.length) return "";
     return `
       <div class="meal-card">
         <h3>全日</h3>
-        ${window.App.State.DAILY_DUTY_ROWS.map((duty) => dutyLine(duty, daily[duty])).join("")}
+        ${rows.map((duty) => dutyLine(duty, daily[duty])).join("")}
       </div>`;
   }
 

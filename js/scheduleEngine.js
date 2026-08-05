@@ -41,7 +41,7 @@ window.App = window.App || {};
    */
   function applyMealOverride(mealData, mealOverride, dayMembers, St, dateStr, warnings, meal) {
     const SERVING_KEYS = ["rice", "serveDish", "lid", "count", "drinks", "boxing"];
-    const DUTY_KEYS_IN_MEAL = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "cleanup", "water"];
+    const DUTY_KEYS_IN_MEAL = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "cleanup"];
 
     const presentIds = [];
     const serving = {};
@@ -236,8 +236,6 @@ window.App = window.App || {};
         wipe: otherAssign.wipe,
         delivery: deliveryIds,
         cleanup: (cleanupDay.assignments[meal] || []).filter((id) => availableForMeal(id, meal)),
-        // 換水只有早餐有，等撤收排完之後才填（見下面）
-        water: [],
         // 這一餐去採買所以人不在，顯示時要跟「有空幫忙包便當」區分開
         absent: dayMembers.filter((m) => isOffForShopping(m.id, meal)).map((m) => m.id),
         // 這一餐已經離營（退伍當天的晚餐），文字班表要寫「已離營」而不是「休息」
@@ -265,10 +263,10 @@ window.App = window.App || {};
      *   1. 還沒開始的日子（WATER_START 之前）——這項勤務那時候根本不存在。
      *   2. 被鎖定的日子——一律照公布版，公布版沒寫換水就是沒有。
      */
-    const waterOverride = override && override.meals && override.meals[St.WATER_MEAL];
+    const waterOverride = override && override.daily && Array.isArray(override.daily.water);
     let waterDay = { ids: [], newWaterState: snapshot.waterState, warnings: [] };
     if (waterOverride) {
-      waterDay.ids = (waterOverride.water || []).slice();
+      waterDay.ids = override.daily.water.slice();
     } else if (dateStr >= St.WATER_START) {
       waterDay = window.App.WaterSchedule.computeWaterDay(
         snapshot.waterState,
@@ -278,8 +276,6 @@ window.App = window.App || {};
       );
     }
     waterDay.warnings.forEach((w) => warnings.push(w));
-    meals[St.WATER_MEAL].water = waterDay.ids.slice();
-    bump(waterDay.ids, "water");
 
     const laundryDay = window.App.Laundry.computeLaundryDay(snapshot.laundryState, snapshot.members, dateStr);
     laundryDay.warnings.forEach((w) => warnings.push(w));
@@ -287,7 +283,9 @@ window.App = window.App || {};
       laundryUp: laundryDay.up,
       laundryDown: laundryDay.down,
       shopping: shoppers.ids.slice(),
+      water: waterDay.ids.slice(),
     };
+    bump(daily.water, "water");
     let newLaundryState = laundryDay.newLaundryState;
     let newWashState = washDay.newWashState;
 
@@ -299,7 +297,7 @@ window.App = window.App || {};
       if (override.daily.washNextStartId) {
         newWashState = { nextStartId: override.daily.washNextStartId };
       }
-      ["laundryUp", "laundryDown", "shopping"].forEach((key) => {
+      ["laundryUp", "laundryDown", "shopping", "water"].forEach((key) => {
         if (Array.isArray(override.daily[key])) daily[key] = override.daily[key].slice();
       });
       /*

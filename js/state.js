@@ -21,7 +21,7 @@ window.App = window.App || {};
    * 涵蓋：勤務人數對照表、預設菜量、採買結束日。
    * 使用者自己逐日調過的菜量（menuSizes）不會被動到。
    */
-  const CONFIG_VERSION = 7;
+  const CONFIG_VERSION = 8;
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
@@ -85,11 +85,10 @@ window.App = window.App || {};
 
   // 每一餐會列出來的勤務欄位（依顯示順序）。
   // 抬上車與抬上樓是同一批人，顯示時合併成一行，所以這裡只放 carry 這個代表欄位。
-  // 換水只有早餐有（撤收完才做），沒人的餐別顯示時會自動略過
-  const MEAL_DUTY_ROWS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "carry", "cleanup", "water"];
+  const MEAL_DUTY_ROWS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "carry", "cleanup"];
 
   // 換水只在這一餐排，而且從這天才開始（之前的日子沒有這項勤務）
-  const WATER_MEAL = "breakfast";
+  const WATER_MEAL = "breakfast"; // 撤收排完才排換水，而且不跟那一餐的撤收重複
   const WATER_COUNT = 5;
   const WATER_START = "2026-08-06";
 
@@ -111,8 +110,11 @@ window.App = window.App || {};
     return servesRiceAt(meal) ? `一飯${dishes}菜` : `${dishes}菜`;
   }
 
-  // 一天只做一次、不分餐別的勤務
-  const DAILY_DUTY_ROWS = ["shopping", "laundryUp", "laundryDown"];
+  /*
+   * 一天只做一次、不分餐別的勤務。
+   * 換水雖然是早餐撤收完才做，但一天只有一次，跟採買、洗衣籃一樣列在「全日」比較好找。
+   */
+  const DAILY_DUTY_ROWS = ["shopping", "water", "laundryUp", "laundryDown"];
 
   const DUTY_LABELS = {
     dishwash: "洗碗",
@@ -130,7 +132,7 @@ window.App = window.App || {};
     floor: "清地板收垃圾",
     delivery: "送便當",
     cleanup: "撤收",
-    water: "換水",
+    water: "換水（早上撤收完）",
     laundry: "抬洗衣籃",
     laundryUp: "抬洗衣籃上來（下午）",
     laundryDown: "抬洗衣籃下去（睡前）",
@@ -389,6 +391,18 @@ window.App = window.App || {};
    *
    * 之後要鎖新的一天，不用改這裡：到「產生班表」頁面把公布過的文字班表貼回去就好。
    */
+  /**
+   * 剛裝上程式裡預鎖的某一天時，順便把它算成「已確定紀錄」。
+   * 鎖定的日子是已經公布、已經發生過的，沒有計入的話後面的輪替（洗衣籃、洗碗指標）
+   * 會從頭開始，跟現場對不上。使用者自己按「取消這天的紀錄」的日子不受影響——
+   * 那時 overrides 已經在了，不會再走到這裡。
+   */
+  function commitSeededDate(target, date) {
+    if (!Array.isArray(target.committedDates)) target.committedDates = [];
+    if (target.committedDates.indexOf(date) === -1) target.committedDates.push(date);
+    target.committedDates.sort();
+  }
+
   function defaultOverrides() {
     return {
       "2026-08-05": {
@@ -409,7 +423,6 @@ window.App = window.App || {};
             floor: ["263-7", "263-10"],
             delivery: ["261-7", "261-8"],
             cleanup: ["261-4", "263-1", "263-2", "263-8", "263-10"],
-            water: [],
           },
           lunch: {
             dishes: 5,
@@ -427,7 +440,6 @@ window.App = window.App || {};
             floor: ["261-3", "261-5"],
             delivery: ["261-7", "261-8"],
             cleanup: ["261-5", "261-6", "261-9", "261-10", "261-11", "261-12", "261-13"],
-            water: [],
           },
           dinner: {
             dishes: 5,
@@ -445,11 +457,11 @@ window.App = window.App || {};
             floor: ["261-4", "263-3"],
             delivery: ["261-7", "261-8"],
             cleanup: ["261-3", "261-7", "261-8", "263-3", "263-4", "263-5", "263-7"],
-            water: [],
           },
         },
         daily: {
           shopping: [],
+          water: [],
           laundryUp: ["261-3", "261-4"],
           laundryDown: ["261-7", "261-8"],
           // 8/6 早餐起洗碗改成單一佇列，從 263-01 重新開始
@@ -488,9 +500,14 @@ window.App = window.App || {};
       overrides: defaultOverrides(),
 
       // ── 來源資料（真正被使用者決定的東西）────────────────────────────
-      // 已確定紀錄的日期。整個系統的班表都是由名冊、設定與這份清單「重播」推導出來的，
-      // 所以同一天不管重排幾次，只要名單與設定沒變，結果一定一樣。
-      committedDates: [],
+      /*
+       * 已確定紀錄的日期。整個系統的班表都是由名冊、設定與這份清單「重播」推導出來的，
+       * 所以同一天不管重排幾次，只要名單與設定沒變，結果一定一樣。
+       *
+       * 程式裡預先鎖好的日子一開始就算是「已確定」——鎖定代表那天已經公布出去、
+       * 真的發生過了。少了這一步，換一支手機打開就會從頭排，洗衣籃也不會接著 261-7、08 走。
+       */
+      committedDates: Object.keys(defaultOverrides()).sort(),
 
       // ── 推導出來的快取（由 ScheduleEngine.rebuildAll 重算，不要手動改）──
       dutyCounts,
@@ -550,11 +567,14 @@ window.App = window.App || {};
       // 程式裡預先鎖好的日子換成新版（內容改了就要換，不然舊的會一直留著）
       Object.keys(base.overrides).forEach((date) => {
         merged.overrides[date] = base.overrides[date];
+        commitSeededDate(merged, date);
       });
     } else {
       // 版本沒變就只補沒鎖過的日子，不動使用者自己鎖的
       Object.keys(base.overrides).forEach((date) => {
-        if (!merged.overrides[date]) merged.overrides[date] = base.overrides[date];
+        if (merged.overrides[date]) return;
+        merged.overrides[date] = base.overrides[date];
+        commitSeededDate(merged, date);
       });
     }
     return merged;

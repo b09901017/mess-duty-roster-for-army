@@ -25,10 +25,11 @@ window.App = window.App || {};
   const GAP_DEG = 1.4; // 扇形之間留的縫，取代描邊
 
   /*
-   * 採買是固定的星期輪值，不是靠公平演算法分的，畫成公平圖沒有意義。
+   * 採買與掃廁所是人工指定的（臨時派、爬梯子抽），不是靠公平演算法分的，畫成公平圖
+   * 沒有意義——次數還是有記，在「採買・掃廁所」分頁看得到。
    * cleanupBreakfast/Lunch/Dinner 是排撤收時內部用來平衡餐別的計數，不用單獨畫圖。
    */
-  const HIDDEN_FROM_CHARTS = ["shopping", "cleanupBreakfast", "cleanupLunch", "cleanupDinner"];
+  const HIDDEN_FROM_CHARTS = ["shopping", "toilet", "cleanupBreakfast", "cleanupLunch", "cleanupDinner"];
 
   function chartedDutyKeys() {
     return window.App.State.DUTY_KEYS.filter((k) => HIDDEN_FROM_CHARTS.indexOf(k) === -1);
@@ -61,6 +62,23 @@ window.App = window.App || {};
     return { lo: Math.floor(total / n), hi: Math.ceil(total / n) };
   }
 
+  /**
+   * 每個人在「有計入的那幾天」裡實際在營幾天。
+   *
+   * 有人 8/8 就退伍、有人 8/6 中午才報到，他們不可能跟待滿的人做一樣多次。
+   * 拿全體平均去要求他們，他們永遠是藍色的「偏少」；反過來，待滿的人要幫忙分掉
+   * 那些沒人做的份，就會全體被標成「偏多」。所以公平要按在營天數比例算。
+   */
+  function activeDaysMap(members) {
+    const St = window.App.State;
+    const dates = countedRange().dates;
+    const map = {};
+    members.forEach((m) => {
+      map[m.id] = dates.filter((d) => St.isActiveOn(m, d)).length;
+    });
+    return map;
+  }
+
   function bucketFor(count, band) {
     if (count > band.hi) return count >= band.hi + 2 ? BUCKETS[4] : BUCKETS[3];
     if (count < band.lo) return count <= band.lo - 2 ? BUCKETS[0] : BUCKETS[1];
@@ -73,7 +91,7 @@ window.App = window.App || {};
    * slices 的角度以 12 點鐘方向為 0 度、順時針遞增；radiusRatio 是 0～1 的比例，
    * 實際半徑由畫圖的人自己乘上去。
    */
-  function chartModel(dutyKey, members, dutyCounts) {
+  function chartModel(dutyKey, members, dutyCounts, daysActive) {
     const St = window.App.State;
     const countOf = (m) => (dutyCounts[m.id] && dutyCounts[m.id][dutyKey]) || 0;
     const eligible = eligibleFor(dutyKey, members);
@@ -84,7 +102,22 @@ window.App = window.App || {};
       return { dutyKey, label, total: 0, eligibleCount: eligible.length, slices: [], empty: true };
     }
 
-    const band = fairBand(total, eligible.length);
+    /*
+     * 每個人的公平範圍照他在營的天數按比例算，不是全體一個平均。
+     * 待滿的人跟只待三天的人本來就不該被要求做一樣多次。
+     */
+    const days = daysActive || activeDaysMap(eligible);
+    const daysOf = (m) => (days[m.id] != null ? days[m.id] : 1);
+    const dayTotal = eligible.reduce((sum, m) => sum + daysOf(m), 0);
+    const maxDays = Math.max.apply(null, eligible.map(daysOf));
+    const expectedOf = (m) => (dayTotal > 0 ? (total * daysOf(m)) / dayTotal : 0);
+    const bandOf = (m) => {
+      const e = expectedOf(m);
+      return { lo: Math.floor(e), hi: Math.ceil(e) };
+    };
+    // 顯示用的那一行寫「待滿的人應該做幾次」，因為那是大多數人的情況
+    const fullExpected = dayTotal > 0 ? (total * maxDays) / dayTotal : 0;
+    const band = { lo: Math.floor(fullExpected), hi: Math.ceil(fullExpected) };
     const rows = eligible.map((m) => ({ m, count: countOf(m) }));
     const maxCount = Math.max.apply(null, rows.map((r) => r.count));
     const sweep = 360 / rows.length;
@@ -100,12 +133,12 @@ window.App = window.App || {};
       endDeg: (i + 1) * sweep - gap / 2,
       // 面積正比於次數 → 半徑取平方根
       radiusRatio: maxCount > 0 ? Math.sqrt(r.count / maxCount) : 0,
-      bucket: bucketFor(r.count, band),
+      bucket: bucketFor(r.count, bandOf(r.m)),
     }));
 
     const topNames = rows.filter((r) => r.count === maxCount).map((r) => r.m.name);
-    const overNames = rows.filter((r) => r.count > band.hi).map((r) => r.m.name);
-    const underNames = rows.filter((r) => r.count < band.lo).map((r) => r.m.name);
+    const overNames = rows.filter((r) => r.count > bandOf(r.m).hi).map((r) => r.m.name);
+    const underNames = rows.filter((r) => r.count < bandOf(r.m).lo).map((r) => r.m.name);
 
     return {
       dutyKey,
@@ -167,6 +200,7 @@ window.App = window.App || {};
     HIDDEN_FROM_CHARTS,
     chartedDutyKeys,
     eligibleFor,
+    activeDaysMap,
     fairBand,
     bucketFor,
     chartModel,

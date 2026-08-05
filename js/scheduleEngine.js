@@ -148,9 +148,24 @@ window.App = window.App || {};
 
     /*
      * 固定送便當的兩位會陸續退伍（崇浩 8/13、柏宇 8/14），使用者確認過不補人，
-     * 少一位就少一位、最後 0 位也沒關係，所以這裡不再提醒。
+     * 少一位就少一位、最後 0 位也沒關係，所以退伍不提醒。
      * 勤務人數對照表是按「扣掉送便當之後的人數」查的，人數會自動對得起來。
+     *
+     * 但「還在營、只是那天被派去採買」是另一回事——那是可以改的安排，
+     * 而便當還是得有人送，所以這種情況要講出來。
      */
+    const deliveryShoppers = dayMembers.filter((m) => m.fixedRole === "delivery" && shopperIds.has(m.id));
+    if (deliveryShoppers.length) {
+      const stillHere = dayMembers.filter(
+        (m) => m.fixedRole === "delivery" && !shopperIds.has(m.id) && St.isActiveOn(m, dateStr, "lunch")
+      );
+      warnings.push(
+        `固定送便當的 ${deliveryShoppers.map((m) => m.name).join("、")} 這天被派去採買，` +
+          (stillHere.length
+            ? `早餐、中餐只剩 ${stillHere.map((m) => m.name).join("、")} 一個人送便當。`
+            : `早餐、中餐沒有人送便當，請改派其他人去採買，或另外指定送便當的人。`)
+      );
+    }
 
     const dishwashCounts = {};
     MEAL_KEYS.forEach((meal) => (dishwashCounts[meal] = sizeByMeal[meal].dishwash));
@@ -277,12 +292,17 @@ window.App = window.App || {};
     }
     waterDay.warnings.forEach((w) => warnings.push(w));
 
+    // 掃廁所是爬梯子決定的，程式只負責印出來與提醒指定到不在的人
+    const toilet = window.App.ToiletDuty.toiletFor(dateStr, snapshot.members, snapshot.toiletByDate, shopperIds);
+    toilet.warnings.forEach((w) => warnings.push(w));
+
     const laundryDay = window.App.Laundry.computeLaundryDay(snapshot.laundryState, snapshot.members, dateStr);
     laundryDay.warnings.forEach((w) => warnings.push(w));
     const daily = {
       laundryUp: laundryDay.up,
       laundryDown: laundryDay.down,
       shopping: shoppers.ids.slice(),
+      toilet: toilet.ids.slice(),
       water: waterDay.ids.slice(),
     };
     bump(daily.water, "water");
@@ -297,7 +317,7 @@ window.App = window.App || {};
       if (override.daily.washNextStartId) {
         newWashState = { nextStartId: override.daily.washNextStartId };
       }
-      ["laundryUp", "laundryDown", "shopping", "water"].forEach((key) => {
+      ["laundryUp", "laundryDown", "shopping", "toilet", "water"].forEach((key) => {
         if (Array.isArray(override.daily[key])) daily[key] = override.daily[key].slice();
       });
       /*
@@ -313,6 +333,7 @@ window.App = window.App || {};
     }
 
     (daily.shopping || []).forEach((id) => bump([id], "shopping"));
+    bump(daily.toilet, "toilet");
     // 抬上來與抬下去是同一組人一天各做一次，合併成一個 laundry 次數統計就夠了
     bump(daily.laundryUp, "laundry");
     bump(daily.laundryDown, "laundry");
@@ -343,6 +364,7 @@ window.App = window.App || {};
       waterState: state.waterState,
       dutySizeTable: state.dutySizeTable,
       shoppingByDate: state.shoppingByDate,
+      toiletByDate: state.toiletByDate,
       overrides: state.overrides,
     };
 
@@ -390,6 +412,7 @@ window.App = window.App || {};
       waterState: state.waterState,
       dutySizeTable: state.dutySizeTable,
       shoppingByDate: state.shoppingByDate,
+      toiletByDate: state.toiletByDate,
       overrides: state.overrides,
     };
   }
@@ -404,6 +427,7 @@ window.App = window.App || {};
       members: state.members,
       dutySizeTable: state.dutySizeTable,
       shoppingByDate: state.shoppingByDate,
+      toiletByDate: state.toiletByDate,
       overrides: state.overrides,
       dutyCounts: {},
       washState: window.App.State.defaultWashState(),

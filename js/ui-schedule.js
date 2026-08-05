@@ -251,7 +251,8 @@ window.App.UI = window.App.UI || {};
     const uncommitBtn = root.querySelector("#uncommit-btn");
     if (uncommitBtn) {
       uncommitBtn.addEventListener("click", () => {
-        if (!confirm(`確定要取消 ${selectedDate} 的紀錄嗎？這天的採買登記也會一併移除。`)) return;
+        // 採買與掃廁所的指定是另外存的，取消紀錄不會動到它們（之前這裡寫錯了）
+        if (!confirm(`確定要取消 ${selectedDate} 的紀錄嗎？這天就會從公平性次數裡拿掉。\n（採買、掃廁所的指定會留著，之後重排還是照原本指定的人。）`)) return;
         window.App.ScheduleEngine.uncommitDay(selectedDate);
         lastPreview = null;
         render();

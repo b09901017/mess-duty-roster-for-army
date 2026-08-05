@@ -64,12 +64,13 @@ window.App = window.App || {};
   }
 
   /**
-   * 某人今天的全日勤務（洗衣籃）。
+   * 某人今天的全日勤務（掃廁所、換水、洗衣籃）。
    * 採買不列在這裡，因為早餐、中餐那兩格已經標了「採買」，重複寫反而囉唆。
    */
   function dailyDutyLabels(daily, memberId) {
     const short = window.App.State.DUTY_SHORT_LABELS;
     const labels = [];
+    if (((daily && daily.toilet) || []).includes(memberId)) labels.push(short.toilet);
     if (((daily && daily.water) || []).includes(memberId)) labels.push(short.water);
     if (((daily && daily.laundryUp) || []).includes(memberId)) labels.push(short.laundryUp);
     if (((daily && daily.laundryDown) || []).includes(memberId)) labels.push(short.laundryDown);

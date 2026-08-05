@@ -22,9 +22,11 @@ const JS_DIR = path.join(__dirname, "..", "..", "js");
 const FILES = [
   "state.js",
   "shoppingRoster.js",
+  "toiletDuty.js",
   "dutySizeConfig.js",
   "washSchedule.js",
   "otherDuties.js",
+  "minCostFlow.js",
   "cleanupSchedule.js",
   "laundry.js",
   "waterSchedule.js",

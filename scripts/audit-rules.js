@@ -28,7 +28,17 @@ const chromium = loadChromium();
   await page.goto((process.env.BASE || 'http://127.0.0.1:8123') + '/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.evaluate(() => { for (let i = 1; i <= 14; i++) window.App.ScheduleEngine.commitDay('2026-08-' + String(i).padStart(2, '0')); });
+  /*
+   * 稽核要跑在「有採買、有掃廁所」的情境下。
+   * 預設資料兩者都是空的，那些斷言等於從來沒被執行過——採買的人有沒有真的被抽掉、
+   * 掃廁所有沒有跟採買撞在一起，都要有人排下去才驗得到。
+   */
+  await page.evaluate(() => {
+    const S = window.App.State.get();
+    S.shoppingByDate = { '2026-08-07': ['261-3', '261-5'], '2026-08-11': ['263-4'] };
+    S.toiletByDate = { '2026-08-06': ['261-9'], '2026-08-07': ['263-2'], '2026-08-12': ['旅部-1'] };
+    for (let i = 1; i <= 14; i++) window.App.ScheduleEngine.commitDay('2026-08-' + String(i).padStart(2, '0'));
+  });
 
   const report = await page.evaluate(() => {
     const S = window.App.State.get();
@@ -222,6 +232,23 @@ const chromium = loadChromium();
       });
       const waterDup = water.filter((x, i) => water.indexOf(x) !== i);
       if (waterDup.length) fail(d, `換水重複排到：${names([...new Set(waterDup)])}`);
+
+      // ── 掃廁所：早上9點、人工指定，程式只負責照抄與擋掉不合理的指定 ──
+      const toilet = sc.daily.toilet || [];
+      const toiletWant = (S.toiletByDate[d] || []).filter(id => {
+        const mm = St.memberById(id);
+        return mm && St.isActiveOn(mm, d, 'breakfast') && !isShopper(id);
+      });
+      if (!eq(set(toilet), set(toiletWant))) {
+        fail(d, `掃廁所名單不符：設定 ${names(toiletWant)}，班表 ${names(toilet)}`);
+      }
+      toilet.forEach(id => {
+        if (isShopper(id)) fail(d, `${nm(id)} 這天去採買，9 點不在營區卻被排到掃廁所`);
+        if (!activeAt(id, 'breakfast')) fail(d, `掃廁所排到早上不在的 ${nm(id)}`);
+      });
+      St.MEAL_KEYS.forEach(meal => {
+        if ((sc.meals[meal].toilet || []).length) fail(d, `掃廁所不該出現在 ${meal} 的勤務欄位（應該在全日）`);
+      });
 
       /*
        * 採買的人早、中完全不排，晚上歸隊。撤收現在是「固定名額、做最少的先輪」，

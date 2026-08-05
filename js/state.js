@@ -56,6 +56,7 @@ window.App = window.App || {};
     "water",
     "laundry",
     "shopping",
+    "toilet",
   ];
 
   /*
@@ -114,7 +115,7 @@ window.App = window.App || {};
    * 一天只做一次、不分餐別的勤務。
    * 換水雖然是早餐撤收完才做，但一天只有一次，跟採買、洗衣籃一樣列在「全日」比較好找。
    */
-  const DAILY_DUTY_ROWS = ["shopping", "water", "laundryUp", "laundryDown"];
+  const DAILY_DUTY_ROWS = ["shopping", "toilet", "water", "laundryUp", "laundryDown"];
 
   const DUTY_LABELS = {
     dishwash: "洗碗",
@@ -137,6 +138,7 @@ window.App = window.App || {};
     laundryUp: "抬洗衣籃上來（下午）",
     laundryDown: "抬洗衣籃下去（睡前）",
     shopping: "採買",
+    toilet: "掃廁所（早上9點）",
   };
 
   // 個人分工那邊用短一點的說法，一行才塞得下
@@ -160,6 +162,7 @@ window.App = window.App || {};
     laundryUp: "抬洗衣籃上來",
     laundryDown: "抬洗衣籃下去",
     shopping: "採買",
+    toilet: "掃廁所",
     departed: "已離營",
   };
 
@@ -184,6 +187,7 @@ window.App = window.App || {};
     laundryUp: "🧺",
     laundryDown: "🧺",
     shopping: "🛒",
+    toilet: "🚻",
   };
 
   function emptyDutyCount() {
@@ -488,6 +492,12 @@ window.App = window.App || {};
        * 名單裡的人那天早餐、中餐完全不排，晚上才歸隊。
        */
       shoppingByDate: {},
+      /*
+       * 掃廁所是早上9點，現場爬梯子決定誰去，不是程式排的，所以也是逐日指定：
+       * { "2026-08-06": ["261-3"] }。通常一天一個人，存成陣列是為了跟其他全日勤務
+       * 一樣好處理（真的要派兩個人也不會壞掉）。
+       */
+      toiletByDate: {},
       menuDefaults: defaultMenuDefaults(),
       // 只存跟預設不一樣的那幾格：{ "2026-08-05": { lunch: 4 } }
       menuSizes: {},
@@ -547,6 +557,7 @@ window.App = window.App || {};
     delete merged.shoppingRoster;
     delete merged.shoppingUntil;
     if (!merged.shoppingByDate || typeof merged.shoppingByDate !== "object") merged.shoppingByDate = {};
+    if (!merged.toiletByDate || typeof merged.toiletByDate !== "object") merged.toiletByDate = {};
     if (!merged.overrides || typeof merged.overrides !== "object") merged.overrides = {};
 
     // 名冊有改版就換上新名冊與採買設定（已排好的日期會依新設定重播，不會遺失）

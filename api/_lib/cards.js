@@ -170,7 +170,7 @@ function dailyBubble(App, dateStr, schedule, names) {
   return {
     type: "bubble",
     size: "giga",
-    header: header("全日勤務", `${TF.formatDateHeader(dateStr)}　採買與洗衣籃`, CARD_COLORS.daily),
+    header: header("全日勤務", `${TF.formatDateHeader(dateStr)}　不分餐別的事`, CARD_COLORS.daily),
     body: { type: "box", layout: "vertical", paddingAll: "14px", contents },
   };
 }

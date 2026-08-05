@@ -73,73 +73,7 @@ window.App = window.App || {};
   }
 
   // ── 最小成本最大流（成對存邊，用 index ^ 1 取得反向邊）────────────────
-  function createNetwork(nodeCount) {
-    const graph = [];
-    for (let i = 0; i < nodeCount; i++) graph.push([]);
-    const edges = [];
-
-    function addEdge(from, to, capacity, cost) {
-      graph[from].push(edges.length);
-      edges.push({ to: to, capacity: capacity, cost: cost, flow: 0 });
-      graph[to].push(edges.length);
-      edges.push({ to: from, capacity: 0, cost: -cost, flow: 0 });
-    }
-
-    return { graph: graph, edges: edges, addEdge: addEdge, nodeCount: nodeCount };
-  }
-
-  /** 連續最短路增廣（成本用 SPFA 算，因為有反向邊會出現負成本） */
-  function minCostMaxFlow(net, source, sink) {
-    const graph = net.graph;
-    const edges = net.edges;
-    let totalFlow = 0;
-
-    for (;;) {
-      const dist = new Array(net.nodeCount).fill(Infinity);
-      const prevEdge = new Array(net.nodeCount).fill(-1);
-      const inQueue = new Array(net.nodeCount).fill(false);
-      dist[source] = 0;
-      const queue = [source];
-      inQueue[source] = true;
-
-      while (queue.length) {
-        const u = queue.shift();
-        inQueue[u] = false;
-        for (let i = 0; i < graph[u].length; i++) {
-          const ei = graph[u][i];
-          const edge = edges[ei];
-          if (edge.capacity - edge.flow <= 0) continue;
-          const next = dist[u] + edge.cost;
-          if (next < dist[edge.to]) {
-            dist[edge.to] = next;
-            prevEdge[edge.to] = ei;
-            if (!inQueue[edge.to]) {
-              inQueue[edge.to] = true;
-              queue.push(edge.to);
-            }
-          }
-        }
-      }
-
-      if (dist[sink] === Infinity) break;
-
-      let push = Infinity;
-      for (let v = sink; v !== source; ) {
-        const ei = prevEdge[v];
-        push = Math.min(push, edges[ei].capacity - edges[ei].flow);
-        v = edges[ei ^ 1].to;
-      }
-      for (let v = sink; v !== source; ) {
-        const ei = prevEdge[v];
-        edges[ei].flow += push;
-        edges[ei ^ 1].flow -= push;
-        v = edges[ei ^ 1].to;
-      }
-      totalFlow += push;
-    }
-
-    return totalFlow;
-  }
+  const { createNetwork, minCostMaxFlow } = window.App.MinCostFlow;
 
   /**
    * @param {object[]} dayMembers - 當天有出現過的人（退伍當天的人也算，他早/中還在）

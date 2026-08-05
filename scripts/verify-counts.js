@@ -34,6 +34,7 @@ function recount(App) {
       (m.cleanup||[]).forEach(id => { add(id, 'cleanup'); add(id, App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]); });
     });
     (sc.daily.shopping||[]).forEach(id => add(id, 'shopping'));
+    (sc.daily.toilet||[]).forEach(id => add(id, 'toilet'));
     (sc.daily.water||[]).forEach(id => add(id, 'water'));
     (sc.daily.laundryUp||[]).forEach(id => add(id, 'laundry'));
     (sc.daily.laundryDown||[]).forEach(id => add(id, 'laundry'));
@@ -61,21 +62,35 @@ function compare(label, App) {
 let allOk = true;
 const days = Array.from({length:14},(_,i)=>'2026-08-'+String(i+1).padStart(2,'0'));
 
+/*
+ * 每個情境都要有採買、有掃廁所。這兩項會把人從早餐、中餐整個抽掉，
+ * 是最容易讓重播出錯的地方——沒排下去的話，下面幾個斷言等於沒跑到。
+ */
+const SHOPPING = { '2026-08-07': ['261-3', '261-5'], '2026-08-11': ['263-4'] };
+const TOILET = { '2026-08-06': ['261-9'], '2026-08-07': ['263-2'], '2026-08-12': ['旅部-1'] };
+function seedPicks(App) {
+  const st = App.State.get();
+  st.shoppingByDate = JSON.parse(JSON.stringify(SHOPPING));
+  st.toiletByDate = JSON.parse(JSON.stringify(TOILET));
+  App.ScheduleEngine.rebuildAll();
+  return App;
+}
+
 // A. 一次排完
-const a = createApp(null);
+const a = seedPicks(createApp(null));
 days.forEach(d => a.ScheduleEngine.commitDay(d));
 allOk = compare('A 依序排完 14 天         ', a) && allOk;
 const snapA = JSON.stringify(a.State.get().dutyCounts);
 
 // B. 同一天重排很多次
-const b = createApp(null);
+const b = seedPicks(createApp(null));
 days.forEach(d => b.ScheduleEngine.commitDay(d));
 for (let i = 0; i < 5; i++) b.ScheduleEngine.commitDay('2026-08-07');
 allOk = compare('B 8/7 重排 5 次           ', b) && allOk;
 console.log('   次數跟 A 一樣嗎：', JSON.stringify(b.State.get().dutyCounts) === snapA ? '✅ 一樣（沒有疊加）' : '❌ 不一樣');
 
 // C. 取消再排回來
-const c = createApp(null);
+const c = seedPicks(createApp(null));
 days.forEach(d => c.ScheduleEngine.commitDay(d));
 c.ScheduleEngine.uncommitDay('2026-08-09');
 c.ScheduleEngine.commitDay('2026-08-09');
@@ -83,20 +98,20 @@ allOk = compare('C 8/9 取消再排回來        ', c) && allOk;
 console.log('   次數跟 A 一樣嗎：', JSON.stringify(c.State.get().dutyCounts) === snapA ? '✅ 一樣' : '❌ 不一樣');
 
 // D. 亂序排
-const d2 = createApp(null);
+const d2 = seedPicks(createApp(null));
 [...days].reverse().forEach(d => d2.ScheduleEngine.commitDay(d));
 allOk = compare('D 倒著排 14 天            ', d2) && allOk;
 console.log('   次數跟 A 一樣嗎：', JSON.stringify(d2.State.get().dutyCounts) === snapA ? '✅ 一樣（順序不影響）' : '❌ 不一樣');
 
 // E. 改了勤務人數之後重播
-const e = createApp(null);
+const e = seedPicks(createApp(null));
 days.forEach(d => e.ScheduleEngine.commitDay(d));
 e.State.get().dutySizeTable.find(r => r.minActiveCount === 19).dishwash = 6;
 e.ScheduleEngine.rebuildAll();
 allOk = compare('E 改設定後重播            ', e) && allOk;
 
 // F. 鎖定的那天有沒有計入
-const f = createApp(null);
+const f = seedPicks(createApp(null));
 days.forEach(d => f.ScheduleEngine.commitDay(d));
 const st = f.State.get();
 console.log('\n鎖定的 8/5：');

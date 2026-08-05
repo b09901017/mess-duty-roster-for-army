@@ -78,8 +78,9 @@ window.App.UI = window.App.UI || {};
       )
       .join("");
 
+    // band 是「從頭待到現在的人」該做幾次；中途報到／退伍的人按在營天數等比例縮放
     const bandText =
-      model.band.lo === model.band.hi ? `每人 ${model.band.lo} 次` : `每人 ${model.band.lo}～${model.band.hi} 次`;
+      model.band.lo === model.band.hi ? `待滿的人 ${model.band.lo} 次` : `待滿的人 ${model.band.lo}～${model.band.hi} 次`;
 
     return `
       <section class="duty-chart-card">
@@ -126,6 +127,8 @@ window.App.UI = window.App.UI || {};
           淺色底代表那一格目前是空的，也就是這個人還沒輪到。
           顏色是拿他的次數跟<strong>公平範圍</strong>比：勤務還沒輪完整圈時（例如擦桌子一天只有3個名額），
           每人拿 0 次或 1 次都算公平，所以都是灰色；真的超出公平範圍才會變橘色或藍色。
+          公平範圍是<strong>按每個人在營幾天等比例算</strong>的——中途才報到、或提早退伍的人待得比較短，
+          次數本來就會比較少，不會因此被標成偏少。
           <strong>整張圖越接近灰色、長度越整齊＝分配越平均</strong>。
           完整數字看旁邊的表格，滑鼠移到格子上也會顯示。
           固定送便當的兩位不會被排到洗碗與其他雜項勤務，那幾張圖不會把他們算進去；

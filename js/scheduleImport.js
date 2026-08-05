@@ -36,6 +36,8 @@ window.App = window.App || {};
 
   const DAILY_LABEL_TO_KEY = {
     採買: "shopping",
+    "掃廁所（早上9點）": "toilet",
+    掃廁所: "toilet",
     "換水（早上撤收完）": "water",
     換水: "water",
     "抬洗衣籃上來（下午）": "laundryUp",
@@ -234,6 +236,7 @@ window.App = window.App || {};
 
   const SHORT_DAILY_TO_KEY = {
     換水: "water",
+    掃廁所: "toilet",
     抬洗衣籃上來: "laundryUp",
     抬洗衣籃下去: "laundryDown",
     採買: "shopping",

@@ -1,9 +1,13 @@
 /*
- * 採買分頁：逐日勾選誰去採買 ＋ 集合時間 ＋ 次數統計。
+ * 採買・掃廁所分頁：逐日指定「今天誰去」的兩項勤務 ＋ 集合時間 ＋ 次數統計。
  *
- * 沒有固定星期、也沒有固定人數——哪天要採買、派幾個人，都是當下才決定的，
- * 所以是一天一列、直接勾人。勾到的人那天早餐、中餐完全不排（打菜、勤務、撤收都不排），
- * 晚上才歸隊，班表會自動跟著少人。
+ * 這兩項都不是程式排的，是當下才決定的（採買臨時派、掃廁所爬梯子），所以放在一起：
+ * 一天一張卡，展開就選人。
+ *
+ *   採買   ：沒有固定星期也沒有固定人數，勾到的人那天早餐、中餐完全不排
+ *            （打菜、勤務、撤收、換水都不排），晚上才歸隊，班表會自動跟著少人。
+ *   掃廁所 ：早上9點，一天一位。9 點已經是早餐收完之後的事，不影響其他勤務，
+ *            但那天要去採買的人不能選（他 9 點還在外面）。
  */
 window.App = window.App || {};
 window.App.UI = window.App.UI || {};
@@ -38,7 +42,7 @@ window.App.UI = window.App.UI || {};
       .sort(S.rosterOrder);
   }
 
-  function dayRow(dateStr, picked, names) {
+  function dayRow(dateStr, picked, toilet, names) {
     const S = window.App.State;
     const R = window.App.ShoppingRoster;
     const wd = R.weekdayOf(dateStr);
@@ -57,20 +61,48 @@ window.App.UI = window.App.UI || {};
     // 名單裡有人已經不在營了，還是要顯示出來讓人發現
     const ghosts = picked.filter((id) => !candidates.some((m) => m.id === id));
 
+    /*
+     * 掃廁所是一天一位，用下拉選單而不是打勾——爬梯子只會抽到一個人，
+     * 下拉比一排勾勾好按，也不會不小心勾到兩個。
+     * 那天要去採買的人不列進選項：他 9 點還在外面。
+     */
+    const toiletId = toilet[0] || "";
+    const toiletOptions = candidates
+      .filter((m) => picked.indexOf(m.id) === -1 || m.id === toiletId)
+      .map(
+        (m) =>
+          `<option value="${m.id}"${m.id === toiletId ? " selected" : ""}>${escapeHtml(
+            `${m.cohort}-${String(m.seq).padStart(2, "0")} ${m.name}`
+          )}</option>`
+      )
+      .join("");
+    /*
+     * 選單本身已經濾掉那天要採買的人，但順序反過來也會發生：
+     * 先選好掃廁所，之後才把同一個人勾成採買。這時舊的選擇還留著，要講出來。
+     */
+    const toiletGhost = toiletId && !candidates.some((m) => m.id === toiletId);
+    const toiletIsShopper = toiletId && picked.indexOf(toiletId) !== -1;
+
+    const chips = [];
+    if (picked.length) {
+      chips.push(
+        `<span class="chip chip-261">採買 ${picked.length} 人</span> ${escapeHtml(
+          picked.map((id) => names[id] || id).join("、")
+        )}`
+      );
+    }
+    if (toiletId) chips.push(`<span class="chip chip-263">🚻 ${escapeHtml(names[toiletId] || toiletId)}</span>`);
+
     return `
       <details class="card shopping-day" data-date="${dateStr}"${
-        picked.length || openDates.has(dateStr) ? " open" : ""
+        picked.length || toiletId || openDates.has(dateStr) ? " open" : ""
       }>
         <summary style="cursor:pointer">
           <strong>${dateStr.slice(5)}（${R.WEEKDAY_LABELS[wd].slice(1)}）</strong>
-          ${
-            picked.length
-              ? `<span class="chip chip-261">採買 ${picked.length} 人</span> ${escapeHtml(
-                  picked.map((id) => names[id] || id).join("、")
-                )}`
-              : `<span class="hint">不用採買</span>`
-          }
+          ${chips.length ? chips.join("　") : `<span class="hint">還沒指定</span>`}
         </summary>
+
+        <p class="section-tag">🛒 採買（早餐、中餐都不排）</p>
         <div class="row" style="margin:10px 0">
           <span class="hint">集合時間</span>
           <input type="text" class="shopping-time" data-weekday="${wd}" style="width:100px"
@@ -85,6 +117,29 @@ window.App.UI = window.App.UI || {};
               )} 這天已經不在營，請取消勾選或改派他人。</div>`
             : ""
         }
+
+        <p class="section-tag">🚻 掃廁所（早上9點）</p>
+        <div class="row" style="margin:10px 0">
+          <select class="toilet-pick" data-date="${dateStr}">
+            <option value="">（還沒抽）</option>
+            ${toiletOptions}
+          </select>
+          <span class="hint">爬梯子抽到誰就選誰，一天一位</span>
+        </div>
+        ${
+          toiletGhost
+            ? `<div class="warning-box">⚠️ ${escapeHtml(
+                names[toiletId] || toiletId
+              )} 這天早上不在營，請改選其他人。</div>`
+            : ""
+        }
+        ${
+          toiletIsShopper
+            ? `<div class="warning-box">⚠️ ${escapeHtml(
+                names[toiletId] || toiletId
+              )} 這天要去採買，9 點還在外面，班表不會排他掃廁所，請改選其他人。</div>`
+            : ""
+        }
       </details>`;
   }
 
@@ -92,39 +147,54 @@ window.App.UI = window.App.UI || {};
     const S = window.App.State;
     const state = S.get();
     const byDate = state.shoppingByDate || {};
+    const toiletByDate = state.toiletByDate || {};
     const names = window.App.TextFormat.displayNameMap();
 
     const dayCards = periodDates()
-      .map((dateStr) => dayRow(dateStr, (byDate[dateStr] || []).slice(), names))
+      .map((dateStr) => dayRow(dateStr, (byDate[dateStr] || []).slice(), (toiletByDate[dateStr] || []).slice(), names))
       .join("");
 
     const active = S.activeMembers();
     const countRows = active
-      .map((m) => ({ m, count: (state.dutyCounts[m.id] && state.dutyCounts[m.id].shopping) || 0 }))
-      .sort((a, b) => b.count - a.count || S.rosterOrder(a.m, b.m))
+      .map((m) => ({
+        m,
+        shopping: (state.dutyCounts[m.id] && state.dutyCounts[m.id].shopping) || 0,
+        toilet: (state.dutyCounts[m.id] && state.dutyCounts[m.id].toilet) || 0,
+      }))
+      .sort((a, b) => b.shopping + b.toilet - (a.shopping + a.toilet) || S.rosterOrder(a.m, b.m))
       .map(
         (r) => `<tr>
           <td>${escapeHtml(`${r.m.cohort}-${r.m.seq} ${r.m.name}`)}</td>
-          <td class="num">${r.count}</td>
+          <td class="num">${r.shopping}</td>
+          <td class="num">${r.toilet}</td>
         </tr>`
       )
       .join("");
 
     container().innerHTML = `
       <div class="card">
-        <h2>採買</h2>
+        <h2>採買・掃廁所</h2>
         <p class="hint">
-          沒有固定星期、也沒有固定人數，哪天要採買就展開那一天勾人，一天勾幾個都可以。
-          <strong>勾到的人那天早餐、中餐完全不排</strong>（打菜、勤務、撤收、換水都不排），晚上才歸隊，
+          這兩項都不是程式排的，是當下才決定的，所以在這裡一天一天指定。
+        </p>
+        <p class="hint">
+          <strong>🛒 採買</strong>：沒有固定星期、也沒有固定人數，哪天要採買就展開那一天勾人，一天勾幾個都可以。
+          勾到的人<strong>那天早餐、中餐完全不排</strong>（打菜、勤務、撤收、換水都不排），晚上才歸隊，
           班表的人數、洗碗佇列、撤收名額會自動跟著少。集合時間會印在文字班表上。
+        </p>
+        <p class="hint">
+          <strong>🚻 掃廁所</strong>：早上9點、一天一位，爬梯子抽到誰就選誰。
+          9 點是早餐收完之後的事，<strong>不影響他當天其他勤務</strong>，三餐照排。
+          那天要去採買的人不會出現在選單裡（他 9 點還在外面）。
         </p>
       </div>
       ${dayCards}
       <div class="card">
-        <h2>採買次數（從 ${S.COUNTS_FROM} 起算）</h2>
+        <h2>次數（從 ${S.COUNTS_FROM} 起算）</h2>
+        <p class="hint">這兩項是人工指定的，不列進公平性總覽的圓圖，但次數照樣記著，方便你抽的時候避開已經做過的人。</p>
         <div class="table-scroll">
         <table>
-          <thead><tr><th>人員</th><th class="num">次數</th></tr></thead>
+          <thead><tr><th>人員</th><th class="num">🛒 採買</th><th class="num">🚻 掃廁所</th></tr></thead>
           <tbody>${countRows}</tbody>
         </table>
         </div>
@@ -157,6 +227,21 @@ window.App.UI = window.App.UI || {};
         else delete next[date];
         state.shoppingByDate = next;
         openDates.add(date); // 重畫之後這一天要維持展開，才好接著勾下一個人
+        window.App.ScheduleEngine.rebuildAll();
+        render();
+        rerenderAll();
+      });
+    });
+
+    root.querySelectorAll(".toilet-pick").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        const state = window.App.State.get();
+        const date = sel.dataset.date;
+        const next = Object.assign({}, state.toiletByDate);
+        if (sel.value) next[date] = [sel.value];
+        else delete next[date];
+        state.toiletByDate = next;
+        openDates.add(date);
         window.App.ScheduleEngine.rebuildAll();
         render();
         rerenderAll();

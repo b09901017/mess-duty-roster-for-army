@@ -17,7 +17,7 @@ const INK = "#4a3f35";
 const MUTED = "#9a8f84";
 const PRIMARY = "#e87a52";
 const ACCENT = "#3f8f7f";
-const COHORT_COLORS = { 261: "#e87a52", 263: "#3486a0" };
+const COHORT_COLORS = { 261: "#e87a52", 263: "#3486a0", 旅部: "#7a6bb5" };
 
 /** 卡片切法：{ cohort, from, to }，from/to 是序號範圍（含頭含尾） */
 const PERSON_CARDS = [
@@ -25,6 +25,7 @@ const PERSON_CARDS = [
   { cohort: "263", from: 1, to: 5 },
   { cohort: "263", from: 6, to: 10 },
   { cohort: "261", from: 9, to: 13 },
+  { cohort: "旅部", from: 1, to: 8 },
 ];
 
 function text(content, opts) {
@@ -118,7 +119,7 @@ function personBubble(App, dateStr, schedule, names, card) {
     type: "bubble",
     size: "giga",
     header: header(
-      `${card.cohort} 梯　${range}`,
+      `${(App.State.COHORT_LABELS || {})[card.cohort] || card.cohort}　${range}`,
       `${TF.formatDateHeader(dateStr)}　個人分工　${members.length} 人`,
       COHORT_COLORS[card.cohort] || PRIMARY
     ),

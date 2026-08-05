@@ -1,4 +1,16 @@
-/* 洗碗輪值演算法：起始梯（primary）持續指標 + 次要梯每次歸零，見 plan 中的驗證表 */
+/*
+ * 洗碗輪值。
+ *
+ * 舊版是「兩梯輪流當起始梯、各自維護指標」，那是人少的時候為了讓「一天洗兩次」的人
+ * 也能公平輪替才需要的。現在人夠多了，使用者改成最單純的做法：
+ *
+ *   全部人排成一條隊伍，照號碼一路輪下去，接到底就繞回開頭。
+ *   順序是 263 → 261 → 招員 → 旅部連（招員就是 261-9~13，照 cohort+seq 排會自然接上）。
+ *
+ * 隊伍裡不含固定送便當的兩位——他們那一餐在外面跑便當。
+ * 進度記「下一個從誰開始」而不是「第幾個位置」，這樣有人退伍導致隊伍變短時，
+ * 指標才不會跳過還沒輪到的人。
+ */
 window.App = window.App || {};
 
 (function () {
@@ -6,101 +18,61 @@ window.App = window.App || {};
 
   const MEAL_KEYS = window.App.State.MEAL_KEYS;
 
-  function rotate(arr, start) {
-    if (arr.length === 0) return [];
-    const s = ((start % arr.length) + arr.length) % arr.length;
-    return arr.slice(s).concat(arr.slice(0, s));
-  }
-
-  function washEligible(members) {
-    return members.filter((m) => m.fixedRole !== "delivery");
+  /** 這一天的洗碗隊伍：照洗碗順序排好，扣掉固定送便當的兩位 */
+  function washQueue(dayMembers) {
+    return dayMembers.filter((m) => m.fixedRole !== "delivery").slice().sort(window.App.State.washOrder);
   }
 
   /**
-   * @param {object} washState - { primaryPointer: {261,263}, nextPrimaryCohort }
-   * @param {{261: object[], 263: object[]}} pools - 已排序、已排除固定送便當的洗碗池
-   * @param {{breakfast:number,lunch:number,dinner:number}} perMealCounts - 各餐需求人數
-   * @param {(memberId: string, meal: string) => boolean} [isAvailable] - 那個人那一餐能不能排（採買的人早/中不能排）
-   * @returns {{assignments: {breakfast:string[],lunch:string[],dinner:string[]}, newWashState: object, primaryCohort: string}}
+   * @param {object} washState - { nextStartId: string|null }
+   * @param {object[]} dayMembers - 當天有出現過的人
+   * @param {{breakfast:number,lunch:number,dinner:number}} perMealCounts - 每一餐要幾個人洗
+   * @param {(memberId: string, meal: string) => boolean} [isAvailable]
+   * @returns {{assignments: object, newWashState: object, queueLength: number}}
    */
-  function computeWashDay(washState, pools, perMealCounts, isAvailable) {
+  function computeWashDay(washState, dayMembers, perMealCounts, isAvailable) {
     const available = isAvailable || (() => true);
-    // 允許傳單一數字（三餐都一樣）或物件（各餐不同，例如退伍當天晚上人變少）
-    const countFor = (meal) =>
-      typeof perMealCounts === "number" ? perMealCounts : (perMealCounts && perMealCounts[meal]) || 0;
-    const primaryCohort = washState.nextPrimaryCohort;
-    const secondaryCohort = primaryCohort === "261" ? "263" : "261";
+    const queue = washQueue(dayMembers);
+    const assignments = { breakfast: [], lunch: [], dinner: [] };
 
-    const primaryPool = washEligible(pools[primaryCohort]);
-    const secondaryPool = washEligible(pools[secondaryCohort]);
-
-    if (primaryPool.length === 0 && secondaryPool.length === 0) {
-      const empty = {};
-      MEAL_KEYS.forEach((meal) => (empty[meal] = []));
-      return { assignments: empty, newWashState: washState, primaryCohort };
+    if (!queue.length) {
+      return { assignments, newWashState: washState || { nextStartId: null }, queueLength: 0 };
     }
 
-    const primaryPointer = primaryPool.length
-      ? ((washState.primaryPointer[primaryCohort] % primaryPool.length) + primaryPool.length) % primaryPool.length
-      : 0;
-
-    const primaryBlock = rotate(primaryPool, primaryPointer);
-    const secondaryBlock = rotate(secondaryPool, 0);
-    const combinedQueue = primaryBlock.concat(secondaryBlock);
-    const combinedLen = combinedQueue.length;
-
-    /*
-     * 用一個「還沒排到的人」清單依序消耗，而不是用固定游標跳位。
-     * 差別在於某人那一餐不能排（例如去採買）時，他只是這一餐被跳過、
-     * 仍然留在清單前面等下一餐，不會平白損失一輪洗碗。
-     * 清單用完就從頭再補一輪，那些人就是當天洗第二次的人。
-     */
-    const assignments = {};
-    let remaining = combinedQueue.slice();
-    const usedIds = new Set();
+    // 從上次停下來的人接著排；那個人已經退伍的話就從隊伍開頭重來
+    let cursor = 0;
+    if (washState && washState.nextStartId) {
+      const idx = queue.findIndex((m) => m.id === washState.nextStartId);
+      if (idx >= 0) cursor = idx;
+    }
 
     MEAL_KEYS.forEach((meal) => {
-      const perMealCount = countFor(meal);
+      const need = Math.max(0, (perMealCounts && perMealCounts[meal]) || 0);
       const picked = [];
-      const guardLimit = combinedLen * 4 + 10;
-      let guard = 0;
-
-      while (picked.length < perMealCount && combinedLen > 0 && guard < guardLimit) {
-        guard++;
-        const idx = remaining.findIndex((m) => available(m.id, meal) && !picked.includes(m.id));
-        if (idx === -1) {
-          // 剩下的人這一餐都不能排（或都已經排過）→ 從頭再補一輪
-          const hasCandidate = combinedQueue.some((m) => available(m.id, meal) && !picked.includes(m.id));
-          if (!hasCandidate) break;
-          remaining = remaining.concat(combinedQueue.slice());
-          continue;
-        }
-        picked.push(remaining[idx].id);
-        usedIds.add(remaining[idx].id);
-        remaining.splice(idx, 1);
+      /*
+       * 從游標往後拿人。這一餐不在的人（已離營）跳過，但游標照樣往前，
+       * 免得他一直卡在隊伍前面害後面的人輪不到。
+       * 最多走兩圈，避免全員都不在時無限迴圈。
+       */
+      let steps = 0;
+      const maxSteps = queue.length * 2;
+      while (picked.length < need && steps < maxSteps) {
+        const member = queue[cursor];
+        cursor = (cursor + 1) % queue.length;
+        steps++;
+        if (!available(member.id, meal)) continue;
+        if (picked.indexOf(member.id) !== -1) continue; // 同一餐不重複排同一個人
+        picked.push(member.id);
       }
-
       assignments[meal] = picked;
     });
 
-    // 有幾個人當天被排到兩次，指標就往前推幾格，
-    // 讓下次這個梯當起始梯時換下一批人重複到。
-    const totalAssigned = MEAL_KEYS.reduce((sum, meal) => sum + assignments[meal].length, 0);
-    const usedTwice = Math.max(0, totalAssigned - usedIds.size);
-    const advance = primaryPool.length ? usedTwice % primaryPool.length : 0;
-    const newPrimaryPointer = primaryPool.length
-      ? (primaryPointer + advance) % primaryPool.length
-      : washState.primaryPointer[primaryCohort];
-
-    const newWashState = {
-      primaryPointer: Object.assign({}, washState.primaryPointer, {
-        [primaryCohort]: newPrimaryPointer,
-      }),
-      nextPrimaryCohort: secondaryCohort,
+    return {
+      assignments,
+      newWashState: { nextStartId: queue[cursor].id },
+      queueLength: queue.length,
     };
-
-    return { assignments, newWashState, primaryCohort };
   }
 
-  window.App.WashSchedule = { computeWashDay, rotate, washEligible };
+  window.App.WashSchedule = { computeWashDay, washQueue };
 })();

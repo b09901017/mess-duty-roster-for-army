@@ -49,12 +49,9 @@ window.App = window.App || {};
     return ids.map((id) => names[id] || id).join("、");
   }
 
-  /** 名冊順序（261 在前，同梯依序號） */
+  /** 名冊順序：261 → 263 → 旅部連，同梯依序號 */
   function sortedMembers(members) {
-    return members.slice().sort((a, b) => {
-      if (a.cohort !== b.cohort) return a.cohort.localeCompare(b.cohort);
-      return a.seq - b.seq;
-    });
+    return members.slice().sort(window.App.State.rosterOrder);
   }
 
   /**
@@ -75,12 +72,13 @@ window.App = window.App || {};
       serving.push({ label: S.DUTY_LABELS[rowKey], value: joinNames(ids, names) });
     });
 
-    const duties = S.MEAL_DUTY_ROWS.map((rowKey) => {
+    const duties = [];
+    S.MEAL_DUTY_ROWS.forEach((rowKey) => {
       const description = DV.mealRowDescription(rowKey);
-      return {
-        label: S.DUTY_LABELS[rowKey],
-        value: description || joinNames(DV.mealRowIds(mealData, rowKey), names),
-      };
+      const ids = DV.mealRowIds(mealData, rowKey);
+      // 換水只有早餐有，其他餐不用列一行「換水：無」佔位
+      if (!description && !ids.length && rowKey === "water") return;
+      duties.push({ label: S.DUTY_LABELS[rowKey], value: description || joinNames(ids, names) });
     });
 
     return { heading: S.MEAL_LABELS[mealKey], menu: S.menuLabel(mealKey, dishes), serving, duties };
@@ -182,10 +180,9 @@ window.App = window.App || {};
       (byCohort[m.cohort] = byCohort[m.cohort] || []).push(m);
     });
 
-    Object.keys(byCohort)
-      .sort()
+    S.COHORT_ORDER.filter((cohort) => byCohort[cohort])
       .forEach((cohort) => {
-        lines.push("", `〔${cohort} 梯〕`);
+        lines.push("", `〔${S.COHORT_LABELS[cohort] || cohort}〕`);
         byCohort[cohort].forEach((m) => {
           const person = personRows(dateStr, schedule, m, names);
           lines.push("", person.name);

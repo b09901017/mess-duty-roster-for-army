@@ -1,24 +1,18 @@
-/* 廚餘/包便當袋子/清地板收垃圾/擦桌子 的公平分配：該項勤務累計次數少者優先，同次數依 261→263、序號排序 */
+/* 廚餘/清地板收垃圾/擦桌子 的公平分配：該項勤務累計次數少者優先，同次數依名冊順序 */
 window.App = window.App || {};
 
 (function () {
   "use strict";
 
-  const COHORT_ORDER = ["261", "263"];
   const DUTY_ORDER = ["foodwaste", "floor", "wipe"];
 
-  function stableCompare(a, b) {
-    const ca = COHORT_ORDER.indexOf(a.cohort);
-    const cb = COHORT_ORDER.indexOf(b.cohort);
-    if (ca !== cb) return ca - cb;
-    return a.seq - b.seq;
-  }
+  const stableCompare = (a, b) => window.App.State.rosterOrder(a, b);
 
   /**
    * @param {object[]} pool - 該餐可用人員（已排除當餐洗碗、固定送便當）
-   * @param {object} dutyCounts - { [memberId]: { foodwaste, lunchbag, wipe, floor, ... } }
-   * @param {{foodwaste:number, lunchbag:number, wipe:number, floor:number}} sizeConfig
-   * @returns {{foodwaste:string[], lunchbag:string[], floor:string[], wipe:string[]}}
+   * @param {object} dutyCounts - { [memberId]: { foodwaste, wipe, floor, ... } }
+   * @param {{foodwaste:number, wipe:number, floor:number}} sizeConfig
+   * @returns {{foodwaste:string[], floor:string[], wipe:string[]}}
    */
   function assignOtherDuties(pool, dutyCounts, sizeConfig) {
     let remaining = pool.slice();

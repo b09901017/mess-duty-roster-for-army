@@ -74,6 +74,17 @@ const chromium = loadChromium();
         const absent = shopper && isOff ? [shopper] : [];
         const present = [...activeIds].filter(id => !absent.includes(id) && activeAt(id, meal));
 
+        // 對照表是按「扣掉送便當之後的人數」查的，四項加起來要剛好等於那個數
+        const deliveryHere = delivery.filter(id => activeAt(id, meal));
+        const splitCount = present.length - deliveryHere.length;
+        const cfg = St2.DutySizeConfig.lookupDutySize(S.dutySizeTable, splitCount);
+        if (cfg) {
+          const got = (m.dishwash||[]).length + (m.foodwaste||[]).length + (m.wipe||[]).length + (m.floor||[]).length;
+          if (got !== splitCount) fail(d, `${meal} 扣掉送便當後有 ${splitCount} 人，但四項勤務只排掉 ${got} 人`);
+        } else {
+          fail(d, `${meal} 扣掉送便當後 ${splitCount} 人，對照表沒有這一列`);
+        }
+
         // 每個人在同一餐不能同時做兩個主要勤務
         const primary = ['dishwash', 'foodwaste', 'wipe', 'floor', 'delivery'];
         const seen = {};
@@ -83,7 +94,7 @@ const chromium = loadChromium();
         }));
 
         // 不在的人不能出現在任何欄位
-        ['dishwash','foodwaste','wipe','floor','delivery','carryVehicle','carryUpstairs','cleanup']
+        ['dishwash','foodwaste','wipe','floor','delivery','carryVehicle','carryUpstairs','cleanup','water']
           .forEach(k => (m[k] || []).forEach(id => {
             if (absent.includes(id)) fail(d, `${meal} ${nm(id)} 去採買了卻被排到 ${k}`);
             if (!activeAt(id, meal)) fail(d, `${meal} ${nm(id)} 這一餐不在營卻被排到 ${k}`);
@@ -154,30 +165,13 @@ const chromium = loadChromium();
         });
       });
 
-      // 撤收：每人每天剛好一次，且早餐人數最少
+      // 撤收：每餐固定 早5／中7／晚7，同一天不會有人被排兩次
       const cleanupAll = St.MEAL_KEYS.flatMap(meal => sc.meals[meal].cleanup || []);
       const dup = cleanupAll.filter((x, i) => cleanupAll.indexOf(x) !== i);
-      if (dup.length) fail(d, `撤收重複排到：${names([...new Set(dup)])}`);
-      // 有人當天三餐都不在（例如退伍當天又輪到採買），本來就無法排撤收，不算漏排
-      const canDoSomeCleanup = id => {
-        const mm = St.memberById(id);
-        return St.MEAL_KEYS.some(meal => {
-          if (!St.isActiveOn(mm, d, meal)) return false;
-          if (shopper === id && (meal === 'breakfast' || meal === 'lunch')) return false;
-          if (mm.fixedRole === 'delivery' && meal !== 'dinner') return false;  // 送便當只排晚上
-          if (mm.skipDinnerCleanup && meal === 'dinner') return false;
-          if ((sc.meals[meal].dishwash || []).includes(id)) return false;  // 那一餐在洗碗
-          return true;
-        });
-      };
-      const eligibleCleanup = [...activeIds].filter(canDoSomeCleanup);
-      const missing = eligibleCleanup.filter(id => !cleanupAll.includes(id));
-      if (missing.length) fail(d, `撤收沒排到：${names(missing)}`);
-      const bN = sc.meals.breakfast.cleanup.length, lN = sc.meals.lunch.cleanup.length, dN = sc.meals.dinner.cleanup.length;
+      if (dup.length) fail(d, `撤收同一天重複排到：${names([...new Set(dup)])}`);
       /*
-       * 早餐要最輕鬆——但只有在「晚餐排得下預定人數」時才是硬性要求。
-       * 洗碗的人不排撤收 + 新人免排晚上撤收，兩條加起來有時候會讓晚餐根本坐不滿，
-       * 那時候人只能往早/中擠，不算演算法排錯。
+       * 撤收改成「固定名額、做最少的先輪」，不再要求每個人每天都輪到一次。
+       * 所以檢查的是名額有沒有坐滿，以及有沒有排到不該排的人。
        */
       const cleanupPool = active.slice();
       const desired = St2.CleanupSchedule.cleanupSizes(cleanupPool.length);
@@ -190,13 +184,42 @@ const chromium = loadChromium();
         return true;
       }).length;
       /*
-       * 硬性要求只到「早餐不會比中餐重」。早餐 vs 晚餐沒辦法硬性保證：
-       * 洗碗不排撤收 + 免排晚上撤收 兩條交錯時，可能連一組「都不超編」的分法都不存在
-       * （Hall 條件不成立，光看各餐人數上限看不出來）。最小成本流已經是最佳解，
-       * 所以這裡只記錄實際分佈，不當成錯誤。
+       * 名額不可以超編，也不可以超過那一餐排得動的人數。
+       * 「沒坐滿」不一定是錯：每人一天最多排一次，當名額總數逼近當天人數時
+       * （例如 8/3 是 18 人 18 個名額），限制一交錯就湊不出完美配對，這是數學上的必然。
        */
-      if (bN > lN) fail(d, `早餐撤收 ${bN} 人比中餐 ${lN} 人還多`);
-      if (bN > dN) notes.push(`${d} 撤收 早${bN}／中${lN}／晚${dN}（想排 早${desired.breakfast}／中${desired.lunch}／晚${desired.dinner}，晚餐上限 ${capacityOf('dinner')}）`);
+      let shortTotal = 0;
+      St.MEAL_KEYS.forEach(meal => {
+        const got = (sc.meals[meal].cleanup || []).length;
+        const cap = capacityOf(meal);
+        if (got > desired[meal]) fail(d, `${meal} 撤收 ${got} 人，超過預定的 ${desired[meal]} 人`);
+        if (got > cap) fail(d, `${meal} 撤收 ${got} 人，超過那一餐排得動的 ${cap} 人`);
+        shortTotal += Math.max(0, desired[meal] - got);
+      });
+      if (shortTotal) {
+        const total = St.MEAL_KEYS.reduce((a, meal) => a + desired[meal], 0);
+        notes.push(`${d} 撤收名額 ${total} 個、當天 ${cleanupPool.length} 人，少坐了 ${shortTotal} 個`
+          + `（早${sc.meals.breakfast.cleanup.length}／中${sc.meals.lunch.cleanup.length}／晚${sc.meals.dinner.cleanup.length}）`);
+      }
+
+      // ── 換水：只有早餐、固定 5 人、不排招員、不跟早餐撤收重複 ──
+      const water = sc.meals.breakfast.water || [];
+      ['lunch', 'dinner'].forEach(meal => {
+        if ((sc.meals[meal].water || []).length) fail(d, `${meal} 不該有換水`);
+      });
+      const waterCap = active.filter(x => !x.skipWater && St.isActiveOn(x, d, 'breakfast')
+        && !(sc.meals.breakfast.cleanup || []).includes(x.id)).length;
+      const waterWant = Math.min(St.WATER_COUNT, waterCap);
+      if (water.length !== waterWant) fail(d, `換水 ${water.length} 人，應為 ${waterWant} 人`);
+      water.forEach(id => {
+        const mm = St.memberById(id);
+        if (mm.skipWater) fail(d, `換水排到免排換水的 ${nm(id)}`);
+        if (!St.isActiveOn(mm, d, 'breakfast')) fail(d, `換水排到早餐不在的 ${nm(id)}`);
+        if ((sc.meals.breakfast.cleanup || []).includes(id)) fail(d, `${nm(id)} 早餐既撤收又換水`);
+      });
+      const waterDup = water.filter((x, i) => water.indexOf(x) !== i);
+      if (waterDup.length) fail(d, `換水重複排到：${names([...new Set(waterDup)])}`);
+
       // 採買的人要在晚餐撤收，除非他晚餐剛好在洗碗（洗碗的人不排撤收）
       const shopperMem = shopper && St.memberById(shopper);
       if (shopper && St.isActiveOn(shopperMem, d, 'dinner')
@@ -244,7 +267,9 @@ const chromium = loadChromium();
       const idx = dates.indexOf(d);
       if (idx > 0 && d >= St.LAUNDRY_START) {
         const prev = S.schedules[dates[idx - 1]];
-        const expectUp = (prev.daily.laundryDown || []).filter(id => activeIds.has(id));
+        // 抬上來是下午的事，所以要看「晚上還在不在」——退伍當天的人不算
+        const expectUp = (prev.daily.laundryDown || [])
+          .filter(id => { const mm = St.memberById(id); return mm && St.isActiveOn(mm, d, 'dinner'); });
         if (!eq(set(sc.daily.laundryUp || []), set(expectUp))) fail(d, `抬洗衣籃上來應為 ${names(expectUp)}，實際 ${names(sc.daily.laundryUp || [])}`);
       }
       if (d < St.LAUNDRY_START && ((sc.daily.laundryUp || []).length || (sc.daily.laundryDown || []).length)) {
@@ -287,7 +312,7 @@ const chromium = loadChromium();
   if (report.locked.length) console.log('  已鎖定：' + report.locked.join('、'));
   report.fails.slice(0, 40).forEach(f => console.log('  ✗ ' + f));
   if (report.notes.length) {
-    console.log(`\n受限制影響、早餐撤收多於晚餐的日子（${report.notes.length} 天）：`);
+    console.log(`\n提醒（不是錯誤）：`);
     report.notes.forEach(n => console.log('  · ' + n));
   }
   console.log('PAGEERRORS:', JSON.stringify(errs));

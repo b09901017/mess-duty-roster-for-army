@@ -30,6 +30,7 @@ function recount(App) {
       (m.floor||[]).forEach(id => add(id, 'floor'));
       (m.wipe||[]).forEach(id => add(id, 'wipe'));
       (m.cleanup||[]).forEach(id => { add(id, 'cleanup'); add(id, App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]); });
+      (m.water||[]).forEach(id => add(id, 'water'));
     });
     (sc.daily.shopping||[]).forEach(id => add(id, 'shopping'));
     (sc.daily.laundryUp||[]).forEach(id => add(id, 'laundry'));

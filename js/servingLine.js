@@ -18,16 +18,10 @@ window.App = window.App || {};
 (function () {
   "use strict";
 
-  const COHORT_ORDER = ["261", "263"];
   const LID_COUNT = 2;
   const PER_DISH = 2;
 
-  function rosterOrder(a, b) {
-    const ca = COHORT_ORDER.indexOf(a.cohort);
-    const cb = COHORT_ORDER.indexOf(b.cohort);
-    if (ca !== cb) return ca - cb;
-    return a.seq - b.seq;
-  }
+  const rosterOrder = (a, b) => window.App.State.rosterOrder(a, b);
 
   function countOf(dutyCounts, id, key) {
     return (dutyCounts[id] && dutyCounts[id][key]) || 0;
@@ -72,10 +66,13 @@ window.App = window.App || {};
     window.App.State.SERVING_FIXED_ROLES.forEach((role) => {
       // 早餐不打飯，那一餐當然不用提醒打飯缺人
       if (role === "rice" && !servesRice) return;
-      const got = byRole(role).length;
-      if (got !== 2) {
+      /*
+       * 固定角色的人陸續退伍，只剩一位是預期中的事（使用者確認過不用補人），
+       * 所以只有完全沒有人的時候才提醒。
+       */
+      if (byRole(role).length === 0) {
         warnings.push(
-          `打菜流程的「${window.App.State.SERVING_ROLE_LABELS[role]}」目前只有 ${got} 人（應為2人），請到「名冊」指定。`
+          `打菜流程的「${window.App.State.SERVING_ROLE_LABELS[role]}」這一餐沒有人，請到「名冊」指定。`
         );
       }
     });

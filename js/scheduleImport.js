@@ -32,6 +32,7 @@ window.App = window.App || {};
     清地板: "floor",
     送便當: "delivery",
     撤收: "cleanup",
+    換水: "water",
   };
 
   const DAILY_LABEL_TO_KEY = {

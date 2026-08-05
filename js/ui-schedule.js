@@ -50,7 +50,9 @@ window.App.UI = window.App.UI || {};
         ${S.MEAL_DUTY_ROWS.map((rowKey) => {
           const description = window.App.DutyView.mealRowDescription(rowKey);
           if (description) return dutyLineText(rowKey, description);
-          return dutyLine(rowKey, window.App.DutyView.mealRowIds(mealData, rowKey));
+          const ids = window.App.DutyView.mealRowIds(mealData, rowKey);
+          if (!ids.length && rowKey === "water") return ""; // 換水只有早餐有
+          return dutyLine(rowKey, ids);
         }).join("")}
       </div>`;
   }

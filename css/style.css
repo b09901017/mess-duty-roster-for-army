@@ -11,6 +11,8 @@
   --cohort-261-bg: #ffe8dc;
   --cohort-263: #4fb0c6;
   --cohort-263-bg: #dcf3f7;
+  --cohort-旅部: #7a6bb5;
+  --cohort-旅部-bg: #e8e4f5;
   --warn-bg: #fff3cd;
   --warn-border: #f4d580;
   --warn-ink: #7a5b00;
@@ -276,6 +278,11 @@ th {
 .chip-263 {
   background: var(--cohort-263-bg);
   color: var(--cohort-263);
+}
+
+.chip-旅部 {
+  background: var(--cohort-旅部-bg);
+  color: var(--cohort-旅部);
 }
 
 .chip-inactive {

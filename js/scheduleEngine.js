@@ -41,7 +41,7 @@ window.App = window.App || {};
    */
   function applyMealOverride(mealData, mealOverride, dayMembers, St, dateStr, warnings, meal) {
     const SERVING_KEYS = ["rice", "serveDish", "lid", "count", "drinks", "boxing"];
-    const DUTY_KEYS_IN_MEAL = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "cleanup"];
+    const DUTY_KEYS_IN_MEAL = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "cleanup", "water"];
 
     const presentIds = [];
     const serving = {};
@@ -131,33 +131,33 @@ window.App = window.App || {};
     MEAL_KEYS.forEach((meal) => {
       const present = dayMembers.filter((m) => availableForMeal(m.id, meal));
       presentByMeal[meal] = present;
-      const cfg = window.App.DutySizeConfig.lookupDutySize(snapshot.dutySizeTable, present.length);
+      /*
+       * 對照表是按「扣掉送便當之後還有幾個人」查的，不是按出勤人數。
+       * 送便當是固定角色，人數由那兩位還在不在決定，不是可以自由分配的欄位；
+       * 用出勤人數查會出事（19人可能是送便當2位都在、也可能只剩1位，需求差1）。
+       */
+      const deliveryCount = present.filter((m) => m.fixedRole === "delivery").length;
+      const splitCount = present.length - deliveryCount;
+      const cfg = window.App.DutySizeConfig.lookupDutySize(snapshot.dutySizeTable, splitCount);
       if (!cfg && !sizeError) {
-        sizeError = `${dateStr} ${St.MEAL_LABELS[meal]}實際出勤 ${present.length} 人，勤務人數設定表中找不到對應設定，請先到「勤務設定」補上這個人數的配置。`;
+        sizeError = `${dateStr} ${St.MEAL_LABELS[meal]}出勤 ${present.length} 人、扣掉送便當 ${deliveryCount} 位還有 ${splitCount} 人要分，勤務人數設定表中找不到對應設定，請先到「勤務設定」補上這個人數的配置。`;
       }
       sizeByMeal[meal] = cfg;
     });
     if (sizeError) return { ok: false, error: sizeError };
 
-    const deliveryAll = dayMembers.filter((m) => m.fixedRole === "delivery").map((m) => m.id);
-    if (deliveryAll.length !== 2) {
-      warnings.push(
-        `固定送便當人力目前只有 ${deliveryAll.length} 人（正常應為2人），請到「名冊管理」手動指定送便當人員。`
-      );
-    }
-
-    const bySeq = (a, b) => a.seq - b.seq;
-    const pools = {
-      261: dayMembers.filter((m) => m.cohort === "261").sort(bySeq),
-      263: dayMembers.filter((m) => m.cohort === "263").sort(bySeq),
-    };
+    /*
+     * 固定送便當的兩位會陸續退伍（崇浩 8/13、柏宇 8/14），使用者確認過不補人，
+     * 少一位就少一位、最後 0 位也沒關係，所以這裡不再提醒。
+     * 勤務人數對照表是按「扣掉送便當之後的人數」查的，人數會自動對得起來。
+     */
 
     const dishwashCounts = {};
     MEAL_KEYS.forEach((meal) => (dishwashCounts[meal] = sizeByMeal[meal].dishwash));
 
     const washDay = window.App.WashSchedule.computeWashDay(
       snapshot.washState,
-      pools,
+      dayMembers,
       dishwashCounts,
       availableForMeal
     );
@@ -199,7 +199,7 @@ window.App = window.App || {};
        * 通常是對照表沒跟上人數變動，所以提醒一下。
        */
       const cfg = sizeByMeal[meal];
-      const spare = present.length - (cfg.dishwash + cfg.foodwaste + cfg.wipe + cfg.floor + deliveryIds.length);
+      const spare = present.length - deliveryIds.length - (cfg.dishwash + cfg.foodwaste + cfg.wipe + cfg.floor);
       if (spare > 0) {
         warnings.push(
           `${St.MEAL_LABELS[meal]}出勤 ${present.length} 人，但勤務設定只排掉 ${present.length - spare} 人，` +
@@ -227,6 +227,8 @@ window.App = window.App || {};
         wipe: otherAssign.wipe,
         delivery: deliveryIds,
         cleanup: (cleanupDay.assignments[meal] || []).filter((id) => availableForMeal(id, meal)),
+        // 換水只有早餐有，等撤收排完之後才填（見下面）
+        water: [],
         // 這一餐去採買所以人不在，顯示時要跟「有空幫忙包便當」區分開
         absent: dayMembers.filter((m) => isOffForShopping(m.id, meal)).map((m) => m.id),
         // 這一餐已經離營（退伍當天的晚餐），文字班表要寫「已離營」而不是「休息」
@@ -247,6 +249,19 @@ window.App = window.App || {};
       incrementCounts(newDutyCounts, meals[meal].cleanup, window.App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]);
     });
 
+    /*
+     * 換水是早餐撤收「之後」才做的，所以要等撤收排完，而且不能排到同一批人。
+     */
+    const waterDay = window.App.WaterSchedule.computeWaterDay(
+      snapshot.waterState,
+      dayMembers,
+      meals[St.WATER_MEAL].cleanup,
+      availableForMeal
+    );
+    waterDay.warnings.forEach((w) => warnings.push(w));
+    meals[St.WATER_MEAL].water = waterDay.ids.slice();
+    incrementCounts(newDutyCounts, waterDay.ids, "water");
+
     const laundryDay = window.App.Laundry.computeLaundryDay(snapshot.laundryState, snapshot.members, dateStr);
     laundryDay.warnings.forEach((w) => warnings.push(w));
     const daily = {
@@ -255,8 +270,16 @@ window.App = window.App || {};
       shopping: shopperId ? [shopperId] : [],
     };
     let newLaundryState = laundryDay.newLaundryState;
+    let newWashState = washDay.newWashState;
 
     if (override && override.daily) {
+      /*
+       * 洗碗改成單一佇列之後，使用者指定「明早從 263-01 重新開始」，
+       * 所以鎖定的日子可以順便指定隔天的起點，不然指標會延續舊演算法的位置。
+       */
+      if (override.daily.washNextStartId) {
+        newWashState = { nextStartId: override.daily.washNextStartId };
+      }
       ["laundryUp", "laundryDown", "shopping"].forEach((key) => {
         if (Array.isArray(override.daily[key])) daily[key] = override.daily[key].slice();
       });
@@ -283,7 +306,8 @@ window.App = window.App || {};
       daily,
       warnings,
       sizeConfig: sizeByMeal.dinner,
-      newWashState: washDay.newWashState,
+      newWashState,
+      newWaterState: waterDay.newWaterState,
       newLaundryState,
       newDutyCounts,
     };
@@ -299,6 +323,7 @@ window.App = window.App || {};
       dutyCounts: state.dutyCounts,
       washState: state.washState,
       laundryState: state.laundryState,
+      waterState: state.waterState,
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
       shoppingUntil: state.shoppingUntil,
@@ -324,11 +349,13 @@ window.App = window.App || {};
 
       running.dutyCounts = result.newDutyCounts;
       running.washState = result.newWashState;
+      running.waterState = result.newWaterState;
       running.laundryState = result.newLaundryState;
     });
 
     state.dutyCounts = running.dutyCounts;
     state.washState = running.washState;
+    state.waterState = running.waterState;
     state.laundryState = running.laundryState;
 
     state.committedDates = dates.filter((d) => !failed.some((f) => f.date === d));
@@ -344,6 +371,7 @@ window.App = window.App || {};
       dutyCounts: state.dutyCounts,
       washState: state.washState,
       laundryState: state.laundryState,
+      waterState: state.waterState,
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
       shoppingUntil: state.shoppingUntil,
@@ -366,6 +394,7 @@ window.App = window.App || {};
       dutyCounts: {},
       washState: window.App.State.defaultWashState(),
       laundryState: window.App.State.defaultLaundryState(),
+      waterState: window.App.State.defaultWaterState(),
     };
     state.members.forEach((m) => (snapshot.dutyCounts[m.id] = window.App.State.emptyDutyCount()));
 
@@ -378,6 +407,7 @@ window.App = window.App || {};
         if (!result.ok) return;
         snapshot.dutyCounts = result.newDutyCounts;
         snapshot.washState = result.newWashState;
+        snapshot.waterState = result.newWaterState;
         snapshot.laundryState = result.newLaundryState;
       });
 

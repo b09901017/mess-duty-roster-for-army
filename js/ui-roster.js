@@ -8,7 +8,8 @@ window.App.UI = window.App.UI || {};
   const container = () => document.getElementById("tab-roster");
 
   function cohortChip(cohort) {
-    return `<span class="chip chip-${cohort}">${cohort}梯</span>`;
+    const label = (window.App.State.COHORT_LABELS || {})[cohort] || `${cohort}梯`;
+    return `<span class="chip chip-${cohort}">${label}</span>`;
   }
 
   function memberRow(m, today) {
@@ -50,6 +51,9 @@ window.App.UI = window.App.UI || {};
           <label class="tick"><input type="checkbox" class="skip-dinner-cleanup" data-id="${m.id}" ${
             m.skipDinnerCleanup ? "checked" : ""
           }> 晚上撤收</label>
+          <label class="tick"><input type="checkbox" class="skip-water" data-id="${m.id}" ${
+            m.skipWater ? "checked" : ""
+          }> 換水</label>
         </td>
         <td data-label="打菜固定角色">
           <select class="serving-role-select" data-id="${m.id}">
@@ -77,11 +81,14 @@ window.App.UI = window.App.UI || {};
   function render() {
     const state = window.App.State.get();
     const today = window.App.State.todayStr();
-    const members261 = state.members.filter((m) => m.cohort === "261").sort((a, b) => a.seq - b.seq);
-    const members263 = state.members.filter((m) => m.cohort === "263").sort((a, b) => a.seq - b.seq);
     const deliveryMembers = window.App.Roster.getDeliveryMembers();
-    const activeCount261 = members261.filter((m) => window.App.State.isActiveOn(m, today)).length;
-    const activeCount263 = members263.filter((m) => window.App.State.isActiveOn(m, today)).length;
+    const St = window.App.State;
+    // 每個梯次一張表；旅部連 8/6 中午才報到，一樣照這個流程管理
+    const cohortCards = St.COHORT_ORDER.map((cohort) => {
+      const list = state.members.filter((m) => m.cohort === cohort).sort((a, b) => a.seq - b.seq);
+      const activeCount = list.filter((m) => St.isActiveOn(m, today)).length;
+      return { cohort, label: St.COHORT_LABELS[cohort] || cohort, list, activeCount };
+    }).filter((c) => c.list.length);
 
     container().innerHTML = `
       ${
@@ -102,31 +109,30 @@ window.App.UI = window.App.UI || {};
         </div>
       </div>
 
+      ${cohortCards
+        .map(
+          (c) => `
       <div class="card">
-        <h2>261 梯 (${activeCount261} 現役 / ${members261.length} 總數)</h2>
-        <p class="hint">
+        <h2>${c.label} (${c.activeCount} 現役 / ${c.list.length} 總數)</h2>
+        ${
+          c.cohort === "261"
+            ? `<p class="hint">
           加入日期留空＝一開始就在；離開日期留空＝還在班。離開方式分兩種：
           <strong>退伍</strong>＝當天早餐、中餐照排、晚上才離營；<strong>退出</strong>（退出打飯班、調離）＝當天早上就不排了。
-          「免排」可以個別勾掉抬洗衣籃與晚上的撤收（8/4 報到的五位預設都勾起來）。
+          「免排」可以個別勾掉抬洗衣籃、晚上的撤收與換水（招員五位預設三個都勾起來）。
           日期都可以先預填未來的，方便一次排完整個梯期。
-        </p>
+        </p>`
+            : ""
+        }
         <div class="table-scroll">
         <table class="responsive-table">
           <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>打菜固定角色</th><th>操作</th></tr></thead>
-          <tbody>${members261.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
+          <tbody>${c.list.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
-      </div>
-
-      <div class="card">
-        <h2>263 梯 (${activeCount263} 現役 / ${members263.length} 總數)</h2>
-        <div class="table-scroll">
-        <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>打菜固定角色</th><th>操作</th></tr></thead>
-          <tbody>${members263.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
-        </table>
-        </div>
-      </div>
+      </div>`
+        )
+        .join("")}
 
       <div class="card">
         <h2>資料重置</h2>
@@ -184,6 +190,15 @@ window.App.UI = window.App.UI || {};
     root.querySelectorAll(".skip-dinner-cleanup").forEach((box) => {
       box.addEventListener("change", () => {
         window.App.Roster.updateMember(box.dataset.id, { skipDinnerCleanup: box.checked });
+        window.App.ScheduleEngine.rebuildAll();
+        render();
+        rerenderAll();
+      });
+    });
+
+    root.querySelectorAll(".skip-water").forEach((box) => {
+      box.addEventListener("change", () => {
+        window.App.Roster.updateMember(box.dataset.id, { skipWater: box.checked });
         window.App.ScheduleEngine.rebuildAll();
         render();
         rerenderAll();

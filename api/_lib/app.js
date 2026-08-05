@@ -27,6 +27,7 @@ const FILES = [
   "otherDuties.js",
   "cleanupSchedule.js",
   "laundry.js",
+  "waterSchedule.js",
   "servingLine.js",
   "dutyView.js",
   "scheduleImport.js",

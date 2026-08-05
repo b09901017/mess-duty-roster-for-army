@@ -6,7 +6,7 @@
  *   - 所以「抬上來」＝上一個有排班的日子「抬下去」的那組人，不需要另外輪。
  *   - 輪替第一天只有抬下去，沒有籃子要抬上來。
  *   - 送便當的兩位也要一起輪（使用者確認過，每個人都要抬上抬下各一次）。
- *   - 名冊上勾了「不排洗衣籃」的人（例如新報到的五位）不進輪替。
+ *   - 名冊上勾了「不排洗衣籃」的人（招員五位）不進輪替；旅部連要輪，順序接在 263 後面。
  *   - 抬上來是下午、抬下去是睡前，所以退伍當天的人一律不排（用 meal="dinner" 判斷在不在營）。
  *
  * 進度用「上一組最後一位是誰」記住，而不是用「名冊第幾個位置」。
@@ -18,17 +18,11 @@ window.App = window.App || {};
 (function () {
   "use strict";
 
-  const COHORT_ORDER = ["261", "263"];
   const PAIR_SIZE = 2;
 
   /** 固定的名冊順序，含已退伍的人，這樣輪替進度才有一個不會變動的座標系 */
   function canonicalOrder(allMembers) {
-    return allMembers.slice().sort((a, b) => {
-      const ca = COHORT_ORDER.indexOf(a.cohort);
-      const cb = COHORT_ORDER.indexOf(b.cohort);
-      if (ca !== cb) return ca - cb;
-      return a.seq - b.seq;
-    });
+    return allMembers.slice().sort(window.App.State.rosterOrder);
   }
 
   /**

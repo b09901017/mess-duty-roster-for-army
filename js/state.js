@@ -8,7 +8,7 @@ window.App = window.App || {};
 
   // 名冊種子每次異動就 +1。舊資料（含從雲端還原的）rosterVersion 對不上時，
   // 會自動換上新名冊，這樣改名冊不用叫使用者清快取，也不會被雲端的舊名冊蓋回去。
-  const ROSTER_VERSION = 4;
+  const ROSTER_VERSION = 5;
 
   /*
    * 勤務人數對照表與預設菜量的版本。
@@ -21,7 +21,7 @@ window.App = window.App || {};
    * 涵蓋：勤務人數對照表、預設菜量、採買結束日。
    * 使用者自己逐日調過的菜量（menuSizes）不會被動到。
    */
-  const CONFIG_VERSION = 4;
+  const CONFIG_VERSION = 5;
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
@@ -44,16 +44,44 @@ window.App = window.App || {};
     "cleanupBreakfast",
     "cleanupLunch",
     "cleanupDinner",
+    "water",
     "laundry",
     "shopping",
   ];
+
+  /*
+   * 名冊的固定順序。招員是 261-9~13，所以照 cohort+seq 排就會自然接在 261-8 後面。
+   * 旅部連是 8/6 中午報到的第三個群體。
+   */
+  const COHORT_ORDER = ["261", "263", "旅部"];
+  const COHORT_LABELS = { 261: "261 梯", 263: "263 梯", 旅部: "旅部連" };
+  function rosterOrder(a, b) {
+    const ca = COHORT_ORDER.indexOf(a.cohort);
+    const cb = COHORT_ORDER.indexOf(b.cohort);
+    if (ca !== cb) return ca - cb;
+    return a.seq - b.seq;
+  }
+
+  // 洗碗的輪替順序（使用者指定）：263 → 261 → 招員 → 旅部連。招員就是 261-9~13。
+  const WASH_COHORT_ORDER = ["263", "261", "旅部"];
+  function washOrder(a, b) {
+    const ca = WASH_COHORT_ORDER.indexOf(a.cohort);
+    const cb = WASH_COHORT_ORDER.indexOf(b.cohort);
+    if (ca !== cb) return ca - cb;
+    return a.seq - b.seq;
+  }
 
   const MEAL_KEYS = ["breakfast", "lunch", "dinner"];
   const MEAL_LABELS = { breakfast: "早餐", lunch: "中餐", dinner: "晚餐" };
 
   // 每一餐會列出來的勤務欄位（依顯示順序）。
   // 抬上車與抬上樓是同一批人，顯示時合併成一行，所以這裡只放 carry 這個代表欄位。
-  const MEAL_DUTY_ROWS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "carry", "cleanup"];
+  // 換水只有早餐有（撤收完才做），沒人的餐別顯示時會自動略過
+  const MEAL_DUTY_ROWS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "carry", "cleanup", "water"];
+
+  // 換水只在這一餐排
+  const WATER_MEAL = "breakfast";
+  const WATER_COUNT = 5;
 
   // 打菜流程的欄位（依實際進行順序）
   const SERVING_ROWS = ["rice", "serveDish", "lid", "count", "drinks", "boxing"];
@@ -92,6 +120,7 @@ window.App = window.App || {};
     floor: "清地板收垃圾",
     delivery: "送便當",
     cleanup: "撤收",
+    water: "換水",
     laundry: "抬洗衣籃",
     laundryUp: "抬洗衣籃上來（下午）",
     laundryDown: "抬洗衣籃下去（睡前）",
@@ -115,6 +144,7 @@ window.App = window.App || {};
     floor: "清地板",
     delivery: "送便當",
     cleanup: "撤收",
+    water: "換水",
     laundryUp: "抬洗衣籃上來",
     laundryDown: "抬洗衣籃下去",
     shopping: "採買",
@@ -137,6 +167,7 @@ window.App = window.App || {};
     floor: "🧹",
     delivery: "🛵",
     cleanup: "📦",
+    water: "🚰",
     laundry: "🧺",
     laundryUp: "🧺",
     laundryDown: "🧺",
@@ -155,6 +186,9 @@ window.App = window.App || {};
 
   // 2026/08/04 這天有一波人員異動：三位退出打飯班、261 加入五位新人。
   const CHANGE_DATE = "2026-08-04";
+  // 旅部連 4 位是 8/6「中午」報到，那天早餐還沒有他們
+  const BRIGADE_JOIN_DATE = "2026-08-06";
+  const BRIGADE_JOIN_MEAL = "lunch";
 
   /*
    * 離開的方式有兩種，對「最後一天」的處理不一樣：
@@ -205,6 +239,9 @@ window.App = window.App || {};
       ["田權楨", null, LEAVE_AFTER_LUNCH],
     ];
 
+    // 8/6 中午報到的旅部連 4 位。姓名確認後直接在「名冊」分頁改。
+    const brigade = ["旅部連1", "旅部連2", "旅部連3", "旅部連4"];
+
     const members = [];
     r261.forEach(([name, dischargeDate, leaveMode, joinDate], idx) => {
       const seq = idx + 1;
@@ -221,6 +258,8 @@ window.App = window.App || {};
         servingRole: SEED_SERVING_ROLES[`261-${seq}`] || null,
         skipLaundry: isNewcomer,
         skipDinnerCleanup: isNewcomer,
+        // 招員不排換水（使用者指定），旅部連可以
+        skipWater: isNewcomer,
       });
     });
     r263.forEach(([name, dischargeDate, leaveMode], idx) => {
@@ -237,6 +276,26 @@ window.App = window.App || {};
         servingRole: SEED_SERVING_ROLES[`263-${seq}`] || null,
         skipLaundry: false,
         skipDinnerCleanup: false,
+        skipWater: false,
+      });
+    });
+    brigade.forEach((name, idx) => {
+      const seq = idx + 1;
+      members.push({
+        id: `旅部-${seq}`,
+        name,
+        cohort: "旅部",
+        seq,
+        joinDate: BRIGADE_JOIN_DATE,
+        joinMeal: BRIGADE_JOIN_MEAL,
+        dischargeDate: null,
+        leaveMode: LEAVE_AFTER_LUNCH,
+        fixedRole: null,
+        servingRole: null,
+        // 旅部連要排洗衣籃、晚上撤收、換水，都不用免排
+        skipLaundry: false,
+        skipDinnerCleanup: false,
+        skipWater: false,
       });
     });
     return members;
@@ -244,42 +303,53 @@ window.App = window.App || {};
 
   function defaultDutySizeTable() {
     /*
-     * 20 人時是 洗碗7／廚餘6／擦桌子2／清地板3（使用者指定），
-     * 加上固定 2 位送便當剛好 20。人變少時的縮減順序（使用者指定）：
-     * 擦桌子 → 廚餘 → 清地板 → 洗碗 → 廚餘，循環往下減，
-     * 擦桌子與清地板最少各留 1 人。每一列加起來都等於該餐出勤人數。
+     * 這張表是按「扣掉送便當之後還有幾個人」查的，不是按出勤人數。
+     *
+     * 因為送便當是固定角色（柏宇、崇浩），人數由他們還在不在決定，不是可以自由分配的欄位。
+     * 用出勤人數當索引會出事：8/6 早餐 19 人（送便當 2 位都在，其餘 17 人要分）
+     * 跟 8/13 晚餐 19 人（只剩柏宇，其餘 18 人要分）需求不同，同一列蓋不住。
+     *
+     * 每一列的四個數字加起來，剛好等於那一餐扣掉送便當之後的人數。
      */
     return [
-      { minActiveCount: 20, dishwash: 7, foodwaste: 6, wipe: 2, floor: 3 },
-      { minActiveCount: 19, dishwash: 7, foodwaste: 6, wipe: 1, floor: 3 },
-      { minActiveCount: 18, dishwash: 7, foodwaste: 5, wipe: 1, floor: 3 },
-      { minActiveCount: 17, dishwash: 7, foodwaste: 5, wipe: 1, floor: 2 },
-      { minActiveCount: 16, dishwash: 6, foodwaste: 5, wipe: 1, floor: 2 },
-      { minActiveCount: 15, dishwash: 6, foodwaste: 4, wipe: 1, floor: 2 },
-      { minActiveCount: 14, dishwash: 6, foodwaste: 4, wipe: 1, floor: 1 },
-      { minActiveCount: 13, dishwash: 5, foodwaste: 4, wipe: 1, floor: 1 },
-      { minActiveCount: 12, dishwash: 5, foodwaste: 3, wipe: 1, floor: 1 },
-      { minActiveCount: 11, dishwash: 4, foodwaste: 3, wipe: 1, floor: 1 },
-      { minActiveCount: 10, dishwash: 4, foodwaste: 2, wipe: 1, floor: 1 },
+      { minActiveCount: 21, dishwash: 7, foodwaste: 7, wipe: 3, floor: 4 },
+      { minActiveCount: 20, dishwash: 7, foodwaste: 7, wipe: 2, floor: 4 },
+      { minActiveCount: 19, dishwash: 7, foodwaste: 6, wipe: 2, floor: 4 },
+      { minActiveCount: 18, dishwash: 7, foodwaste: 6, wipe: 2, floor: 3 },
+      { minActiveCount: 17, dishwash: 7, foodwaste: 6, wipe: 2, floor: 2 },
+      { minActiveCount: 16, dishwash: 6, foodwaste: 6, wipe: 2, floor: 2 },
+      { minActiveCount: 15, dishwash: 6, foodwaste: 5, wipe: 2, floor: 2 },
+      { minActiveCount: 14, dishwash: 6, foodwaste: 5, wipe: 1, floor: 2 },
+      { minActiveCount: 13, dishwash: 5, foodwaste: 5, wipe: 1, floor: 2 },
+      { minActiveCount: 12, dishwash: 5, foodwaste: 4, wipe: 1, floor: 2 },
+      { minActiveCount: 11, dishwash: 5, foodwaste: 4, wipe: 1, floor: 1 },
+      { minActiveCount: 10, dishwash: 4, foodwaste: 4, wipe: 1, floor: 1 },
     ];
   }
 
-  /** 每餐幾道菜的預設值；某天某餐要不一樣就存進 menuSizes 覆蓋 */
-  // 中晚餐最多五道菜（五菜＝打飯2＋打菜10＋蓋便當2＋計數2＋抬飲料2＝18人，人夠）
+  // 早餐 3 菜且不打飯（6＋2＋2＋2＝12人），中晚餐 5 菜（2＋10＋2＋2＋2＝18人）
   function defaultMenuDefaults() {
-    return { breakfast: 2, lunch: 5, dinner: 5 };
+    return { breakfast: 3, lunch: 5, dinner: 5 };
   }
 
+  /*
+   * 洗碗改成單一佇列照號碼輪（263 → 261 → 招員 → 旅部連），
+   * 不再分兩梯輪流當起始梯，所以只要記「下一個從誰開始」。
+   */
   function defaultWashState() {
-    return { primaryPointer: { 261: 0, 263: 0 }, nextPrimaryCohort: "261" };
+    return { nextStartId: null };
   }
 
   function defaultLaundryState() {
     return { lastAssignedId: null, lastDown: [] };
   }
 
-  // 採買只做到這一天為止（含）。之後就不用採買了，留空代表沒有結束日。
-  // 8/3 是最後一次採買，8/4 起就不用採買了
+  /** 換水的輪替進度，一樣只記「上一組最後一位是誰」 */
+  function defaultWaterState() {
+    return { lastAssignedId: null };
+  }
+
+  // 採買只做到這一天為止（含）。8/3 是最後一次，8/4 起就不用採買了。
   const DEFAULT_SHOPPING_UNTIL = "2026-08-03";
 
   /** 採買集合時間（0=週日 … 6=週六），顯示在文字班表上 */
@@ -369,6 +439,8 @@ window.App = window.App || {};
           shopping: [],
           laundryUp: ["261-5", "261-6"],
           laundryDown: ["261-7", "261-8"],
+          // 使用者指定：8/6 早餐起洗碗改成單一佇列，從 263-01 重新開始
+          washNextStartId: "263-1",
         },
       },
     };
@@ -408,6 +480,7 @@ window.App = window.App || {};
       dutyCounts,
       washState: defaultWashState(),
       laundryState: defaultLaundryState(),
+      waterState: defaultWaterState(),
       schedules: {},
     };
   }
@@ -430,6 +503,7 @@ window.App = window.App || {};
     const merged = Object.assign({}, base, parsed, {
       washState: Object.assign({}, base.washState, parsed.washState),
       laundryState: Object.assign({}, base.laundryState, parsed.laundryState),
+      waterState: Object.assign({}, base.waterState, parsed.waterState),
       shoppingRoster: Object.assign({}, base.shoppingRoster, parsed.shoppingRoster),
       shoppingTimes: Object.assign({}, base.shoppingTimes, parsed.shoppingTimes),
       menuDefaults: Object.assign({}, base.menuDefaults, parsed.menuDefaults),
@@ -516,6 +590,13 @@ window.App = window.App || {};
    */
   function isActiveOn(member, dateStr, meal) {
     if (member.joinDate && dateStr < member.joinDate) return false;
+    /*
+     * 報到當天可以指定是哪一餐才到（旅部連是 8/6「中午」報到，那天早餐還沒有他們）。
+     * 沒指定 joinMeal 就是一早就到。
+     */
+    if (member.joinDate && dateStr === member.joinDate && member.joinMeal && meal) {
+      if (MEAL_KEYS.indexOf(meal) < MEAL_KEYS.indexOf(member.joinMeal)) return false;
+    }
     if (!member.dischargeDate) return true;
     if (dateStr < member.dischargeDate) return true;
     if (dateStr > member.dischargeDate) return false;
@@ -576,6 +657,7 @@ window.App = window.App || {};
     state.dutyCounts = dutyCounts;
     state.washState = defaultWashState();
     state.laundryState = defaultLaundryState();
+    state.waterState = defaultWaterState();
     state.schedules = {};
   }
 
@@ -596,6 +678,13 @@ window.App = window.App || {};
     MEAL_KEYS,
     MEAL_LABELS,
     MEAL_DUTY_ROWS,
+    COHORT_ORDER,
+    COHORT_LABELS,
+    rosterOrder,
+    washOrder,
+    WASH_COHORT_ORDER,
+    WATER_MEAL,
+    WATER_COUNT,
     DAILY_DUTY_ROWS,
     DUTY_LABELS,
     DUTY_SHORT_LABELS,
@@ -620,6 +709,7 @@ window.App = window.App || {};
     defaultWashState,
     defaultShoppingTimes,
     defaultLaundryState,
+    defaultWaterState,
     defaultShoppingRoster,
     defaultMenuDefaults,
     defaultOverrides,

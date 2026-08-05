@@ -33,6 +33,61 @@ window.App = window.App || {};
   }
 
   /**
+   * 用鎖定的內容覆蓋某一餐。
+   *
+   * 「在場的人」直接由鎖定內容裡的打菜名單決定（每個人一定剛好出現在一個打菜位置），
+   * 這樣就算之後名冊改了（例如某人的退伍日填錯又改掉），已公布的那天也不會跑掉。
+   * 抬便當上車/上樓是規則不是名單，所以照樣由「在場 − 送便當」重算。
+   */
+  function applyMealOverride(mealData, mealOverride, dayMembers, St, dateStr, warnings, meal) {
+    const SERVING_KEYS = ["rice", "serveDish", "lid", "count", "drinks", "boxing"];
+    const DUTY_KEYS_IN_MEAL = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "cleanup"];
+
+    const presentIds = [];
+    const serving = {};
+    SERVING_KEYS.forEach((role) => {
+      const ids = mealOverride.serving && mealOverride.serving[role];
+      serving[role] = Array.isArray(ids) ? ids.slice() : [];
+      serving[role].forEach((id) => {
+        if (presentIds.indexOf(id) === -1) presentIds.push(id);
+      });
+    });
+    mealData.serving = serving;
+    if (mealOverride.dishes != null) mealData.dishes = mealOverride.dishes;
+
+    DUTY_KEYS_IN_MEAL.forEach((key) => {
+      const ids = mealOverride[key];
+      if (!Array.isArray(ids)) return;
+      mealData[key] = ids.slice();
+      ids.forEach((id) => {
+        if (presentIds.indexOf(id) === -1) presentIds.push(id);
+      });
+    });
+
+    // 抬便當＝在場的人扣掉送便當的兩位
+    const deliverySet = new Set(mealData.delivery || []);
+    const carry = presentIds.filter((id) => !deliverySet.has(id));
+    mealData.carryVehicle = carry.slice();
+    mealData.carryUpstairs = carry.slice();
+
+    // 鎖定內容裡的人，名冊上要真的存在；不在場卻有勤務的要講出來
+    const known = new Set(dayMembers.map((m) => m.id));
+    const nameOf = (id) => {
+      const m = St.memberById(id);
+      return m ? `${m.cohort}-${m.seq} ${m.name}` : id;
+    };
+    const ghosts = presentIds.filter((id) => !known.has(id));
+    if (ghosts.length) {
+      warnings.push(
+        `${St.MEAL_LABELS[meal]}：鎖定的班表裡有 ${ghosts.map(nameOf).join("、")}，但名冊上他們這天不在營。` +
+          `班表照鎖定的版本顯示，但建議去「名冊」把加入／離開日期改對。`
+      );
+    }
+    mealData.absent = [];
+    mealData.departed = dayMembers.filter((m) => presentIds.indexOf(m.id) === -1).map((m) => m.id);
+  }
+
+  /**
    * 純計算：不會修改任何全域狀態，只根據傳入的 snapshot 算出這一天的班表。
    * @param {string} dateStr
    * @param {{members, dutyCounts, washState, laundryState, dutySizeTable, shoppingRoster}} snapshot
@@ -116,6 +171,14 @@ window.App = window.App || {};
     );
     (cleanupDay.warnings || []).forEach((w) => warnings.push(w));
 
+    /*
+     * 這天有沒有被「鎖定」成已公布的版本。有的話，勤務與打菜名單一律照鎖定的內容，
+     * 不再重算——這樣之後改規則、改名冊都不會動到已經公布出去的班表。
+     * 次數照樣從鎖定的內容累計，公平性總覽才會跟實際做的一致。
+     */
+    const override = (snapshot.overrides || {})[dateStr] || null;
+    if (override) warnings.push(`這天已鎖定成公布過的版本，不會跟著規則變動。要改回自動排班請按「解除鎖定」。`);
+
     const newDutyCounts = cloneDutyCounts(snapshot.dutyCounts);
     const meals = {};
     MEAL_KEYS.forEach((meal) => {
@@ -170,13 +233,16 @@ window.App = window.App || {};
         departed: dayMembers.filter((m) => !St.isActiveOn(m, dateStr, meal)).map((m) => m.id),
       };
 
-      incrementCounts(newDutyCounts, serving.assignments.serveDish, "serveDish");
-      incrementCounts(newDutyCounts, serving.assignments.lid, "lid");
-      incrementCounts(newDutyCounts, serving.assignments.boxing, "boxing");
-      incrementCounts(newDutyCounts, dishwashIds, "dishwash");
-      incrementCounts(newDutyCounts, otherAssign.foodwaste, "foodwaste");
-      incrementCounts(newDutyCounts, otherAssign.floor, "floor");
-      incrementCounts(newDutyCounts, otherAssign.wipe, "wipe");
+      const mealOverride = override && override.meals && override.meals[meal];
+      if (mealOverride) applyMealOverride(meals[meal], mealOverride, dayMembers, St, dateStr, warnings, meal);
+
+      incrementCounts(newDutyCounts, meals[meal].serving.serveDish || [], "serveDish");
+      incrementCounts(newDutyCounts, meals[meal].serving.lid || [], "lid");
+      incrementCounts(newDutyCounts, meals[meal].serving.boxing || [], "boxing");
+      incrementCounts(newDutyCounts, meals[meal].dishwash, "dishwash");
+      incrementCounts(newDutyCounts, meals[meal].foodwaste, "foodwaste");
+      incrementCounts(newDutyCounts, meals[meal].floor, "floor");
+      incrementCounts(newDutyCounts, meals[meal].wipe, "wipe");
       incrementCounts(newDutyCounts, meals[meal].cleanup, "cleanup");
       incrementCounts(newDutyCounts, meals[meal].cleanup, window.App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]);
     });
@@ -188,10 +254,28 @@ window.App = window.App || {};
       laundryDown: laundryDay.down,
       shopping: shopperId ? [shopperId] : [],
     };
-    if (shopperId) incrementCounts(newDutyCounts, [shopperId], "shopping");
+    let newLaundryState = laundryDay.newLaundryState;
+
+    if (override && override.daily) {
+      ["laundryUp", "laundryDown", "shopping"].forEach((key) => {
+        if (Array.isArray(override.daily[key])) daily[key] = override.daily[key].slice();
+      });
+      /*
+       * 洗衣籃的進度要跟著鎖定的內容走，不然隔天「抬上來」會跟今天實際「抬下去」的人對不上
+       * （進度是記「上一組最後一位是誰」，所以連 lastAssignedId 一起改）。
+       */
+      if (Array.isArray(override.daily.laundryDown)) {
+        newLaundryState = {
+          lastAssignedId: daily.laundryDown.length ? daily.laundryDown[daily.laundryDown.length - 1] : newLaundryState.lastAssignedId,
+          lastDown: daily.laundryDown.slice(),
+        };
+      }
+    }
+
+    (daily.shopping || []).forEach((id) => incrementCounts(newDutyCounts, [id], "shopping"));
     // 抬上來與抬下去是同一組人一天各做一次，合併成一個 laundry 次數統計就夠了
-    incrementCounts(newDutyCounts, laundryDay.up, "laundry");
-    incrementCounts(newDutyCounts, laundryDay.down, "laundry");
+    incrementCounts(newDutyCounts, daily.laundryUp, "laundry");
+    incrementCounts(newDutyCounts, daily.laundryDown, "laundry");
 
     return {
       ok: true,
@@ -200,7 +284,7 @@ window.App = window.App || {};
       warnings,
       sizeConfig: sizeByMeal.dinner,
       newWashState: washDay.newWashState,
-      newLaundryState: laundryDay.newLaundryState,
+      newLaundryState,
       newDutyCounts,
     };
   }
@@ -218,6 +302,7 @@ window.App = window.App || {};
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
       shoppingUntil: state.shoppingUntil,
+      overrides: state.overrides,
     };
 
     const dates = state.committedDates.slice().sort();
@@ -262,6 +347,7 @@ window.App = window.App || {};
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
       shoppingUntil: state.shoppingUntil,
+      overrides: state.overrides,
     };
   }
 
@@ -276,6 +362,7 @@ window.App = window.App || {};
       dutySizeTable: state.dutySizeTable,
       shoppingRoster: state.shoppingRoster,
       shoppingUntil: state.shoppingUntil,
+      overrides: state.overrides,
       dutyCounts: {},
       washState: window.App.State.defaultWashState(),
       laundryState: window.App.State.defaultLaundryState(),

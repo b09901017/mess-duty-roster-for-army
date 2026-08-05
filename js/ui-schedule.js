@@ -64,6 +64,40 @@ window.App.UI = window.App.UI || {};
       </div>`;
   }
 
+  /*
+   * 已經公布給大家的班表要能鎖住，之後改規則、改名冊都不會動到它。
+   * 直接把「文字班表 → 依餐別」複製出去的那段貼回來就好。
+   */
+  function lockCard(date) {
+    const locked = (window.App.State.get().overrides || {})[date];
+    if (locked) {
+      return `
+        <div class="card">
+          <h2>🔒 這天已鎖定</h2>
+          <p class="hint">
+            ${date} 照公布過的版本顯示，之後改勤務人數、菜量、名冊都不會動到它，
+            次數一樣會計入公平性總覽。${locked.note ? `（${locked.note}）` : ""}
+          </p>
+          <button type="button" class="danger" id="unlock-btn">解除鎖定，改回自動排班</button>
+        </div>`;
+    }
+    return `
+      <details class="card">
+        <summary style="cursor:pointer;font-weight:600">🔒 鎖定這天（貼上已公布的班表）</summary>
+        <p class="hint">
+          已經把班表貼到群組了、之後又改了規則的話，把當初公布的那份貼回來，
+          這天就會永遠照那份走，不會再跟著規則變動——次數照樣算。
+          貼「文字班表 → 依餐別」複製出來的完整內容就可以，標號和分隔線都不用清掉。
+        </p>
+        <textarea id="lock-input" class="text-schedule-area" rows="10"
+          placeholder="把當初公布的『依餐別』文字班表整段貼在這裡"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button type="button" class="primary" id="lock-btn">鎖定 ${date}</button>
+        </div>
+        <div id="lock-message"></div>
+      </details>`;
+  }
+
   function render() {
     const state = window.App.State.get();
     const committed = state.committedDates.includes(selectedDate);
@@ -85,6 +119,7 @@ window.App.UI = window.App.UI || {};
           }
         </div>
       </div>
+      ${lockCard(selectedDate)}
       <div id="schedule-result"></div>
     `;
 
@@ -168,6 +203,45 @@ window.App.UI = window.App.UI || {};
           alert(result.error);
           return;
         }
+        render();
+        rerenderOthers();
+      });
+    }
+
+    const lockBtn = root.querySelector("#lock-btn");
+    if (lockBtn) {
+      lockBtn.addEventListener("click", () => {
+        const input = root.querySelector("#lock-input");
+        const messageEl = root.querySelector("#lock-message");
+        const state = window.App.State.get();
+        const result = window.App.ScheduleImport.parseMealText(input.value, state.members);
+
+        if (!result.ok) {
+          messageEl.innerHTML = `<div class="warning-box">讀不進去：<br>${result.errors
+            .map((e) => "・" + e)
+            .join("<br>")}</div>`;
+          return;
+        }
+
+        state.overrides = Object.assign({}, state.overrides);
+        state.overrides[selectedDate] = result.override;
+        if (!state.committedDates.includes(selectedDate)) state.committedDates.push(selectedDate);
+        window.App.ScheduleEngine.rebuildAll();
+        lastPreview = null;
+        render();
+        rerenderOthers();
+      });
+    }
+
+    const unlockBtn = root.querySelector("#unlock-btn");
+    if (unlockBtn) {
+      unlockBtn.addEventListener("click", () => {
+        if (!confirm(`解除 ${selectedDate} 的鎖定之後，這天會改回自動排班，內容可能跟公布過的不一樣。確定嗎？`)) return;
+        const state = window.App.State.get();
+        state.overrides = Object.assign({}, state.overrides);
+        delete state.overrides[selectedDate];
+        window.App.ScheduleEngine.rebuildAll();
+        lastPreview = null;
         render();
         rerenderOthers();
       });

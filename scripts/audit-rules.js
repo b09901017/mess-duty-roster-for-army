@@ -37,6 +37,7 @@ const chromium = loadChromium();
     const St2 = window.App;
     const fails = [];
     const notes = [];
+    const locked = [];
     const fail = (d, msg) => fails.push(`${d}  ${msg}`);
     const set = a => new Set(a);
     const eq = (a, b) => a.size === b.size && [...a].every(x => b.has(x));
@@ -47,6 +48,11 @@ const chromium = loadChromium();
 
     dates.forEach(d => {
       const sc = S.schedules[d];
+      /*
+       * 被「鎖定」的日子照公布過的版本走，本來就不該套用自動排班的規則
+       * （那天的規則可能跟現在不一樣），所以規則檢查跳過，只在下面另外對次數。
+       */
+      if ((S.overrides || {})[d]) { locked.push(d); return; }
       const active = St.activeMembersOn(d);
       const activeIds = set(active.map(m => m.id));
       const activeAt = (id, meal) => { const mm = St.memberById(id); return mm && St.isActiveOn(mm, d, meal); };
@@ -274,10 +280,11 @@ const chromium = loadChromium();
       });
     });
 
-    return { fails, notes, days: dates.length };
+    return { fails, notes, locked, days: dates.length };
   });
 
-  console.log(`稽核 ${report.days} 天，共 ${report.fails.length} 個問題`);
+  console.log(`稽核 ${report.days} 天（其中 ${report.locked.length} 天已鎖定、跳過規則檢查），共 ${report.fails.length} 個問題`);
+  if (report.locked.length) console.log('  已鎖定：' + report.locked.join('、'));
   report.fails.slice(0, 40).forEach(f => console.log('  ✗ ' + f));
   if (report.notes.length) {
     console.log(`\n受限制影響、早餐撤收多於晚餐的日子（${report.notes.length} 天）：`);

@@ -29,6 +29,7 @@ const FILES = [
   "laundry.js",
   "servingLine.js",
   "dutyView.js",
+  "scheduleImport.js",
   "textFormat.js",
   "fairnessChart.js",
   "scheduleEngine.js",

@@ -21,7 +21,7 @@ window.App = window.App || {};
    * 涵蓋：勤務人數對照表、預設菜量、採買結束日。
    * 使用者自己逐日調過的菜量（menuSizes）不會被動到。
    */
-  const CONFIG_VERSION = 3;
+  const CONFIG_VERSION = 4;
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
@@ -244,23 +244,23 @@ window.App = window.App || {};
 
   function defaultDutySizeTable() {
     /*
-     * 包便當袋子改由「打菜流程」的包餐盒負責，原本的 4 個名額平均加到
-     * 洗碗、廚餘、擦桌子、清地板各一個。人變少時的縮減順序（使用者指定）：
-     * 擦桌子 → 廚餘 → 清地板 → 洗碗 → 廚餘，之後洗碗、廚餘輪流再減。
-     * 每一列加上固定 2 位送便當，剛好等於該餐出勤人數。
+     * 20 人時是 洗碗7／廚餘6／擦桌子2／清地板3（使用者指定），
+     * 加上固定 2 位送便當剛好 20。人變少時的縮減順序（使用者指定）：
+     * 擦桌子 → 廚餘 → 清地板 → 洗碗 → 廚餘，循環往下減，
+     * 擦桌子與清地板最少各留 1 人。每一列加起來都等於該餐出勤人數。
      */
     return [
-      { minActiveCount: 20, dishwash: 8, foodwaste: 6, wipe: 2, floor: 2 },
-      { minActiveCount: 19, dishwash: 8, foodwaste: 5, wipe: 2, floor: 2 },
-      { minActiveCount: 18, dishwash: 8, foodwaste: 5, wipe: 1, floor: 2 },
-      { minActiveCount: 17, dishwash: 8, foodwaste: 4, wipe: 1, floor: 2 },
-      { minActiveCount: 16, dishwash: 8, foodwaste: 4, wipe: 1, floor: 1 },
-      { minActiveCount: 15, dishwash: 7, foodwaste: 4, wipe: 1, floor: 1 },
-      { minActiveCount: 14, dishwash: 7, foodwaste: 3, wipe: 1, floor: 1 },
-      { minActiveCount: 13, dishwash: 6, foodwaste: 3, wipe: 1, floor: 1 },
-      { minActiveCount: 12, dishwash: 6, foodwaste: 2, wipe: 1, floor: 1 },
-      { minActiveCount: 11, dishwash: 5, foodwaste: 2, wipe: 1, floor: 1 },
-      { minActiveCount: 10, dishwash: 5, foodwaste: 1, wipe: 1, floor: 1 },
+      { minActiveCount: 20, dishwash: 7, foodwaste: 6, wipe: 2, floor: 3 },
+      { minActiveCount: 19, dishwash: 7, foodwaste: 6, wipe: 1, floor: 3 },
+      { minActiveCount: 18, dishwash: 7, foodwaste: 5, wipe: 1, floor: 3 },
+      { minActiveCount: 17, dishwash: 7, foodwaste: 5, wipe: 1, floor: 2 },
+      { minActiveCount: 16, dishwash: 6, foodwaste: 5, wipe: 1, floor: 2 },
+      { minActiveCount: 15, dishwash: 6, foodwaste: 4, wipe: 1, floor: 2 },
+      { minActiveCount: 14, dishwash: 6, foodwaste: 4, wipe: 1, floor: 1 },
+      { minActiveCount: 13, dishwash: 5, foodwaste: 4, wipe: 1, floor: 1 },
+      { minActiveCount: 12, dishwash: 5, foodwaste: 3, wipe: 1, floor: 1 },
+      { minActiveCount: 11, dishwash: 4, foodwaste: 3, wipe: 1, floor: 1 },
+      { minActiveCount: 10, dishwash: 4, foodwaste: 2, wipe: 1, floor: 1 },
     ];
   }
 
@@ -300,6 +300,80 @@ window.App = window.App || {};
     };
   }
 
+  /*
+   * 已公布出去、鎖定不再變動的班表。
+   *
+   * 「邊改程式邊公布勤務」會遇到一個問題：改了規則之後回頭看，那天的班表跟公布的
+   * 不一樣，群組裡的人就會覺得又改了。所以已經貼出去的那幾天要鎖起來——
+   * 排班時照鎖定的內容走，不再重算，但次數照樣計入公平性總覽。
+   *
+   * 之後要鎖新的一天，不用改這裡：到「產生班表」頁面把公布過的文字班表貼回去就好。
+   */
+  function defaultOverrides() {
+    return {
+      "2026-08-05": {
+        note: "8/5 已公布給大家，鎖定不再變動",
+        meals: {
+          breakfast: {
+            dishes: 2,
+            serving: {
+              serveDish: ["261-9", "261-10", "261-11", "261-12"],
+              lid: ["261-13", "263-5"],
+              count: ["261-4", "263-7"],
+              drinks: ["261-3", "263-1"],
+              boxing: ["261-2", "261-5", "261-6", "261-7", "261-8", "263-2", "263-3", "263-4", "263-8", "263-10"],
+            },
+            dishwash: ["261-4", "261-5", "261-6", "261-9", "261-10", "261-11", "261-12"],
+            foodwaste: ["261-13", "263-2", "263-1", "261-2", "261-3", "263-3"],
+            wipe: ["263-5", "263-8"],
+            floor: ["263-7", "263-10", "263-4"],
+            delivery: ["261-7", "261-8"],
+            cleanup: ["261-2", "261-13", "263-5", "263-7", "263-8"],
+          },
+          lunch: {
+            dishes: 5,
+            serving: {
+              rice: ["263-2", "263-10"],
+              serveDish: ["261-13", "261-9", "261-10", "261-11", "261-12", "261-5", "261-6", "261-7", "261-8", "263-3"],
+              lid: ["263-8", "261-2"],
+              count: ["261-4", "263-7"],
+              drinks: ["261-3", "263-1"],
+              boxing: ["263-4", "263-5"],
+            },
+            dishwash: ["261-13", "261-2", "261-3", "263-1", "263-2", "263-3", "263-4"],
+            foodwaste: ["261-9", "261-10", "261-11", "261-12", "261-4", "261-5"],
+            wipe: ["263-8", "263-10"],
+            floor: ["261-6", "263-5", "263-7"],
+            delivery: ["261-7", "261-8"],
+            cleanup: ["261-4", "261-5", "261-6", "261-9", "261-10", "261-11", "261-12", "263-10"],
+          },
+          dinner: {
+            dishes: 5,
+            serving: {
+              rice: ["263-2", "263-10"],
+              serveDish: ["261-13", "261-9", "261-10", "261-11", "261-12", "263-4", "263-5", "263-8", "261-5", "261-6"],
+              lid: ["263-3", "261-7"],
+              count: ["261-4", "263-7"],
+              drinks: ["261-3", "263-1"],
+              boxing: ["261-8"],
+            },
+            dishwash: ["263-5", "263-7", "263-8", "263-10", "261-4", "261-5", "261-6", "261-9"],
+            foodwaste: ["261-10", "261-11", "261-12", "261-13", "263-2"],
+            wipe: ["263-3", "263-4"],
+            floor: ["261-3", "263-1"],
+            delivery: ["261-7", "261-8"],
+            cleanup: ["261-3", "261-7", "261-8", "263-1", "263-2", "263-3", "263-4"],
+          },
+        },
+        daily: {
+          shopping: [],
+          laundryUp: ["261-5", "261-6"],
+          laundryDown: ["261-7", "261-8"],
+        },
+      },
+    };
+  }
+
   function defaultState() {
     const members = seedMembers();
     const dutyCounts = {};
@@ -317,6 +391,13 @@ window.App = window.App || {};
       menuDefaults: defaultMenuDefaults(),
       // 只存跟預設不一樣的那幾格：{ "2026-08-05": { lunch: 4 } }
       menuSizes: {},
+
+      /*
+       * 已經公布出去、之後不准再變動的班表。
+       * key 是日期，值是完整的當天名單；排班時會照這份走，不再重算，
+       * 但次數照樣累計。用「文字班表」貼回來就能鎖定（見 js/scheduleImport.js）。
+       */
+      overrides: defaultOverrides(),
 
       // ── 來源資料（真正被使用者決定的東西）────────────────────────────
       // 已確定紀錄的日期。整個系統的班表都是由名冊、設定與這份清單「重播」推導出來的，
@@ -356,6 +437,7 @@ window.App = window.App || {};
     // 舊版的「臨時登記採買」已改成固定星期表；撤收也不再用固定分組
     delete merged.shoppingLog;
     delete merged.cleanupGroups;
+    if (!merged.overrides || typeof merged.overrides !== "object") merged.overrides = {};
 
     // 名冊有改版就換上新名冊與採買設定（已排好的日期會依新設定重播，不會遺失）
     if (parsed.rosterVersion !== ROSTER_VERSION) {
@@ -374,6 +456,11 @@ window.App = window.App || {};
       merged.shoppingUntil = base.shoppingUntil;
       merged.configVersion = CONFIG_VERSION;
     }
+
+    // 程式裡預先鎖好的日子，如果使用者自己沒有鎖過同一天就補上（不覆蓋他自己鎖的）
+    Object.keys(base.overrides).forEach((date) => {
+      if (!merged.overrides[date]) merged.overrides[date] = base.overrides[date];
+    });
     return merged;
   }
 
@@ -535,6 +622,7 @@ window.App = window.App || {};
     defaultLaundryState,
     defaultShoppingRoster,
     defaultMenuDefaults,
+    defaultOverrides,
     menuSizeFor,
     onSave,
     saveWithoutNotifying,

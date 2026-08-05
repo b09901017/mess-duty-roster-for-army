@@ -306,10 +306,11 @@ const chromium = loadChromium();
       });
     });
 
-    return { fails, notes, locked, days: dates.length };
+    return { fails, notes, locked, countsFrom: St.COUNTS_FROM, days: dates.length };
   });
 
   console.log(`稽核 ${report.days} 天（其中 ${report.locked.length} 天已鎖定、跳過規則檢查），共 ${report.fails.length} 個問題`);
+  console.log(`  公平性次數從 ${report.countsFrom} 起算`);
   if (report.locked.length) console.log('  已鎖定：' + report.locked.join('、'));
   report.fails.slice(0, 40).forEach(f => console.log('  ✗ ' + f));
   if (report.notes.length) {

@@ -19,6 +19,8 @@ function recount(App) {
     tally[id][key] = (tally[id][key] || 0) + 1;
   };
   Object.keys(st.schedules).sort().forEach(date => {
+    // 公平性次數從 COUNTS_FROM 才開始累計，之前的日子照樣排但不計入
+    if (date < S.COUNTS_FROM) return;
     const sc = st.schedules[date];
     S.MEAL_KEYS.forEach(meal => {
       const m = sc.meals[meal];

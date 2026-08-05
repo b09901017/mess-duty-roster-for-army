@@ -180,6 +180,15 @@ window.App = window.App || {};
     if (override) warnings.push(`這天已鎖定成公布過的版本，不會跟著規則變動。要改回自動排班請按「解除鎖定」。`);
 
     const newDutyCounts = cloneDutyCounts(snapshot.dutyCounts);
+    /*
+     * 公平性次數從 COUNTS_FROM 才開始累計。之前的日子照樣排、照樣看得到，
+     * 但不計入次數——規則已經整個換新，舊次數拿來比不公平。
+     * 輪值進度（洗碗到誰、洗衣籃到誰）不受影響，那是另一回事。
+     */
+    const countsThisDay = dateStr >= St.COUNTS_FROM;
+    const bump = (ids, key) => {
+      if (countsThisDay) incrementCounts(newDutyCounts, ids, key);
+    };
     const meals = {};
     MEAL_KEYS.forEach((meal) => {
       const dishwashIds = washDay.assignments[meal] || [];
@@ -238,15 +247,15 @@ window.App = window.App || {};
       const mealOverride = override && override.meals && override.meals[meal];
       if (mealOverride) applyMealOverride(meals[meal], mealOverride, dayMembers, St, dateStr, warnings, meal);
 
-      incrementCounts(newDutyCounts, meals[meal].serving.serveDish || [], "serveDish");
-      incrementCounts(newDutyCounts, meals[meal].serving.lid || [], "lid");
-      incrementCounts(newDutyCounts, meals[meal].serving.boxing || [], "boxing");
-      incrementCounts(newDutyCounts, meals[meal].dishwash, "dishwash");
-      incrementCounts(newDutyCounts, meals[meal].foodwaste, "foodwaste");
-      incrementCounts(newDutyCounts, meals[meal].floor, "floor");
-      incrementCounts(newDutyCounts, meals[meal].wipe, "wipe");
-      incrementCounts(newDutyCounts, meals[meal].cleanup, "cleanup");
-      incrementCounts(newDutyCounts, meals[meal].cleanup, window.App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]);
+      bump(meals[meal].serving.serveDish || [], "serveDish");
+      bump(meals[meal].serving.lid || [], "lid");
+      bump(meals[meal].serving.boxing || [], "boxing");
+      bump(meals[meal].dishwash, "dishwash");
+      bump(meals[meal].foodwaste, "foodwaste");
+      bump(meals[meal].floor, "floor");
+      bump(meals[meal].wipe, "wipe");
+      bump(meals[meal].cleanup, "cleanup");
+      bump(meals[meal].cleanup, window.App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]);
     });
 
     /*
@@ -270,7 +279,7 @@ window.App = window.App || {};
     }
     waterDay.warnings.forEach((w) => warnings.push(w));
     meals[St.WATER_MEAL].water = waterDay.ids.slice();
-    incrementCounts(newDutyCounts, waterDay.ids, "water");
+    bump(waterDay.ids, "water");
 
     const laundryDay = window.App.Laundry.computeLaundryDay(snapshot.laundryState, snapshot.members, dateStr);
     laundryDay.warnings.forEach((w) => warnings.push(w));
@@ -305,10 +314,10 @@ window.App = window.App || {};
       }
     }
 
-    (daily.shopping || []).forEach((id) => incrementCounts(newDutyCounts, [id], "shopping"));
+    (daily.shopping || []).forEach((id) => bump([id], "shopping"));
     // 抬上來與抬下去是同一組人一天各做一次，合併成一個 laundry 次數統計就夠了
-    incrementCounts(newDutyCounts, daily.laundryUp, "laundry");
-    incrementCounts(newDutyCounts, daily.laundryDown, "laundry");
+    bump(daily.laundryUp, "laundry");
+    bump(daily.laundryDown, "laundry");
 
     return {
       ok: true,

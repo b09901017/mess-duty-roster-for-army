@@ -198,6 +198,17 @@ window.App = window.App || {};
       window.App.ScheduleEngine.rebuildAll();
     });
     applyingRemote = false;
+
+    /*
+     * 套用雲端資料時會順便做版本遷移與重播（換新名冊、新對照表、重算班表）。
+     * 那些動作包在 saveWithoutNotifying 裡不會觸發上傳，雲端就會一直停在舊版，
+     * 別台裝置與 LINE 機器人拉到的也還是舊的。所以這裡比對一下，
+     * 只要遷移後的內容跟雲端那份不一樣就補上傳一次。
+     */
+    if (window.App.State.exportJson() !== data.payload) {
+      schedulePush();
+    }
+
     setStatus("connected", "已從雲端更新", {
       lastPull: new Date().toLocaleString("zh-TW", { hour12: false }),
       cloudUpdatedAt: toDateString(data.updatedAt),

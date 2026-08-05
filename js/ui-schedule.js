@@ -89,10 +89,10 @@ window.App.UI = window.App.UI || {};
         <p class="hint">
           已經把班表貼到群組了、之後又改了規則的話，把當初公布的那份貼回來，
           這天就會永遠照那份走，不會再跟著規則變動——次數照樣算。
-          貼「文字班表 → 依餐別」複製出來的完整內容就可以，標號和分隔線都不用清掉。
+          「依餐別」或「依個人」複製出來的都可以，標號和分隔線都不用清掉。
         </p>
         <textarea id="lock-input" class="text-schedule-area" rows="10"
-          placeholder="把當初公布的『依餐別』文字班表整段貼在這裡"></textarea>
+          placeholder="把當初公布的文字班表整段貼在這裡（依餐別、依個人都可以）"></textarea>
         <div class="row" style="margin-top:8px">
           <button type="button" class="primary" id="lock-btn">鎖定 ${date}</button>
         </div>
@@ -216,7 +216,7 @@ window.App.UI = window.App.UI || {};
         const input = root.querySelector("#lock-input");
         const messageEl = root.querySelector("#lock-message");
         const state = window.App.State.get();
-        const result = window.App.ScheduleImport.parseMealText(input.value, state.members);
+        const result = window.App.ScheduleImport.parseScheduleText(input.value, state.members);
 
         if (!result.ok) {
           messageEl.innerHTML = `<div class="warning-box">讀不進去：<br>${result.errors

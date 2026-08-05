@@ -201,5 +201,175 @@ window.App = window.App || {};
     return m ? m.name : id;
   }
 
-  window.App.ScheduleImport = { parseMealText, buildNameIndex };
+
+  // ── 依個人格式 ──────────────────────────────────────────────────────
+  /*
+   * 「依個人」那份也要能貼回來鎖定，因為值星常常是複製那一份貼到群組的。
+   * 格式長這樣：
+   *     陳柏翰
+   *       早　打菜：抬飲料
+   *       　　勤務：洗碗、抬上車/上樓
+   *       另：抬洗衣籃上來
+   * 讀進來之後再「翻面」成依勤務的名單。
+   */
+  const SHORT_SERVING_TO_KEY = {
+    打飯: "rice",
+    打菜: "serveDish",
+    蓋便當: "lid",
+    計數: "count",
+    抬飲料: "drinks",
+    包餐盒: "boxing",
+  };
+
+  const SHORT_DUTY_TO_KEY = {
+    洗碗: "dishwash",
+    廚餘: "foodwaste",
+    擦桌子: "wipe",
+    清地板: "floor",
+    清地板收垃圾: "floor",
+    送便當: "delivery",
+    撤收: "cleanup",
+    換水: "water",
+  };
+
+  const SHORT_DAILY_TO_KEY = {
+    抬洗衣籃上來: "laundryUp",
+    抬洗衣籃下去: "laundryDown",
+    採買: "shopping",
+  };
+
+  const MEAL_BY_HEAD = { 早: "breakfast", 中: "lunch", 晚: "dinner" };
+
+  function emptyOverride() {
+    const override = { meals: {}, daily: { shopping: [], laundryUp: [], laundryDown: [] } };
+    window.App.State.MEAL_KEYS.forEach((meal) => {
+      override.meals[meal] = { serving: {}, dishes: null };
+      Object.keys(SHORT_DUTY_TO_KEY).forEach((label) => {
+        override.meals[meal][SHORT_DUTY_TO_KEY[label]] = [];
+      });
+    });
+    return override;
+  }
+
+  function push(target, key, id) {
+    target[key] = target[key] || [];
+    if (target[key].indexOf(id) === -1) target[key].push(id);
+  }
+
+  /**
+   * @param {string} text - 從「文字班表 → 依個人」複製出來的整段
+   * @param {object[]} members
+   * @returns {{ok: boolean, override: object|null, errors: string[], warnings: string[]}}
+   */
+  function parsePersonText(text, members) {
+    const St = window.App.State;
+    const errors = [];
+    const warnings = [];
+    const nameIndex = buildNameIndex(members);
+    const override = emptyOverride();
+
+    let currentId = null;
+    let currentName = "";
+    let currentMeal = null;
+    let sawAnything = false;
+
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach((rawLine) => {
+        const line = rawLine.replace(/[　\s]+$/, "");
+        const trimmed = line.trim();
+        if (!trimmed || /^[─—-]{3,}$/.test(trimmed)) return;
+        if (/^〔.*〕$/.test(trimmed)) return; // 〔261 梯〕
+        if (/勤務班表$|個人勤務$/.test(trimmed)) return; // 標題列
+
+        // 「早　打菜：…」「　　勤務：…」「另：…」「早：已離營」
+        const mealServing = trimmed.match(/^([早中晚])[　\s]*打菜：(.*)$/);
+        const mealDuty = trimmed.match(/^勤務：(.*)$/);
+        const mealNote = trimmed.match(/^([早中晚])：(.*)$/);
+        const extra = trimmed.match(/^另：(.*)$/);
+
+        if (mealServing) {
+          if (!currentId) return;
+          currentMeal = MEAL_BY_HEAD[mealServing[1]];
+          resolveShort(mealServing[2], SHORT_SERVING_TO_KEY, (key) => {
+            push(override.meals[currentMeal].serving, key, currentId);
+          }, `${currentName} ${mealServing[1]} 打菜`);
+          sawAnything = true;
+          return;
+        }
+        if (mealDuty) {
+          if (!currentId || !currentMeal) return;
+          resolveShort(mealDuty[1], SHORT_DUTY_TO_KEY, (key) => {
+            push(override.meals[currentMeal], key, currentId);
+          }, `${currentName} 勤務`);
+          sawAnything = true;
+          return;
+        }
+        if (extra) {
+          if (!currentId) return;
+          resolveShort(extra[1], SHORT_DAILY_TO_KEY, (key) => {
+            push(override.daily, key, currentId);
+          }, `${currentName} 另`);
+          return;
+        }
+        if (mealNote) {
+          // 「早：已離營」「早：採買」——那一餐沒有勤務，跳過
+          currentMeal = MEAL_BY_HEAD[mealNote[1]];
+          return;
+        }
+
+        // 剩下沒有冒號的單獨一行就是人名
+        if (trimmed.indexOf("：") === -1) {
+          const id = nameIndex[trimmed];
+          if (!id) {
+            errors.push(`名冊裡找不到「${trimmed}」`);
+            currentId = null;
+            return;
+          }
+          currentId = id;
+          currentName = trimmed;
+          currentMeal = null;
+        }
+      });
+
+    function resolveShort(raw, table, onHit, context) {
+      String(raw || "")
+        .split(/[、,，]/)
+        .map((x) => x.replace(/[（(].*?[)）]/g, "").trim())
+        .filter((x) => x && x !== "無")
+        .forEach((label) => {
+          // 抬上車/上樓是規則不是名單；已離營之類的狀態字也略過
+          if (/^抬上車|^抬上樓|^抬便當|已離營/.test(label)) return;
+          const key = table[label];
+          if (!key) {
+            warnings.push(`${context}：看不懂「${label}」，已略過`);
+            return;
+          }
+          onHit(key);
+        });
+    }
+
+    if (!sawAnything) {
+      errors.push("這段文字裡找不到任何分工，請確認是從「文字班表 → 依個人」複製的完整內容。");
+    }
+
+    /*
+     * 依個人那份沒有寫幾道菜，從「打菜」的人數回推（每道菜 2 人）。
+     */
+    St.MEAL_KEYS.forEach((meal) => {
+      const serveDish = (override.meals[meal].serving.serveDish || []).length;
+      override.meals[meal].dishes = Math.ceil(serveDish / 2);
+    });
+
+    return { ok: errors.length === 0, override: errors.length ? null : override, errors, warnings };
+  }
+
+  /** 自動判斷貼進來的是哪一種格式 */
+  function parseScheduleText(text, members) {
+    return /〔打菜〕|〔勤務〕/.test(String(text || ""))
+      ? parseMealText(text, members)
+      : parsePersonText(text, members);
+  }
+
+  window.App.ScheduleImport = { parseMealText, parsePersonText, parseScheduleText, buildNameIndex };
 })();

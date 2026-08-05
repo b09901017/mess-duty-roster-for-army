@@ -43,13 +43,31 @@ window.App = window.App || {};
    */
   function eligibleFor(dutyKey, members) {
     if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
+    /*
+     * 洗碗分兩群人，混在同一張圖裡看不出東西：
+     * 固定洗碗的招員三餐都洗（一天 3 次），其他人是輪的（一天 0~1 次）。
+     * 圖上只畫「在輪的那群」，固定的那五位次數照樣記，但不進來當分母，
+     * 否則他們永遠是深橘色、其他人永遠是深藍色，圖就沒有意義了。
+     */
+    if (dutyKey === "dishwash") return members.filter((m) => m.fixedRole !== "delivery" && !m.fixedDishwash);
     if (dutyKey === "laundry") return members.filter((m) => !m.skipLaundry);
     // 換水跟洗衣籃一樣是全員輪（含送便當的兩位），只有名冊勾「免排換水」的招員不算
     if (dutyKey === "water") return members.filter((m) => !m.skipWater);
-    // 撤收現在全員都排（送便當的兩位只排得到晚上，但還是有排）
-    if (dutyKey === "cleanup") return members.slice();
-    if (["serveDish", "lid", "boxing"].indexOf(dutyKey) !== -1) return members.filter((m) => !m.servingRole);
-    return members.filter((m) => m.fixedRole !== "delivery");
+    // 撤收全員都排（送便當的兩位只排得到晚上，但還是有排），固定洗碗的招員不排
+    if (dutyKey === "cleanup") return members.filter((m) => !m.fixedDishwash);
+    /*
+     * 打菜三項也要把固定洗碗的招員拿掉：他們每一餐都固定打菜、從不蓋便當包餐盒，
+     * 不是在跟大家輪。留在圖上只會讓打菜那張永遠是他們深橘、其他人深藍。
+     */
+    if (["serveDish", "lid", "boxing"].indexOf(dutyKey) !== -1) {
+      return members.filter((m) => !m.servingRole && !m.fixedDishwash);
+    }
+    /*
+     * 剩下的是廚餘／擦桌子／清地板。固定送便當的兩位不排（他們在跑便當），
+     * 固定洗碗的招員也不排（他們三餐都在洗碗，這就是他們談好的條件）——
+     * 兩群人的 0 次都不是「做太少」，算進來只會讓其他人全部被標成偏多。
+     */
+    return members.filter((m) => m.fixedRole !== "delivery" && !m.fixedDishwash);
   }
 
   /**

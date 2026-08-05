@@ -10,6 +10,13 @@
  * 隊伍裡不含固定送便當的兩位——他們那一餐在外面跑便當。
  * 進度記「下一個從誰開始」而不是「第幾個位置」，這樣有人退伍導致隊伍變短時，
  * 指標才不會跳過還沒輪到的人。
+ *
+ * ── 固定洗碗的人 ──────────────────────────────────
+ * 名冊勾了「固定洗碗」的人（目前是招員五位）**三餐都洗**，不進輪替。
+ * 他們自己談好的：寧願三餐都洗碗，也不要被打散排到廚餘、擦桌子那些。
+ *
+ * 所以每一餐是「固定的那幾位 ＋ 輪替補到滿」：23 人時洗碗 7 位 ＝ 固定 5 ＋ 輪替 2。
+ * 對照表的洗碗人數不用改，少的那幾個名額才是大家在輪的。
  */
 window.App = window.App || {};
 
@@ -18,9 +25,17 @@ window.App = window.App || {};
 
   const MEAL_KEYS = window.App.State.MEAL_KEYS;
 
-  /** 這一天的洗碗隊伍：照洗碗順序排好，扣掉固定送便當的兩位 */
+  /** 三餐都固定洗碗的人（照名冊順序） */
+  function fixedWashers(dayMembers) {
+    return dayMembers.filter((m) => m.fixedDishwash).slice().sort(window.App.State.washOrder);
+  }
+
+  /** 這一天的洗碗輪替隊伍：照洗碗順序排好，扣掉固定送便當與固定洗碗的人 */
   function washQueue(dayMembers) {
-    return dayMembers.filter((m) => m.fixedRole !== "delivery").slice().sort(window.App.State.washOrder);
+    return dayMembers
+      .filter((m) => m.fixedRole !== "delivery" && !m.fixedDishwash)
+      .slice()
+      .sort(window.App.State.washOrder);
   }
 
   /**
@@ -28,27 +43,43 @@ window.App = window.App || {};
    * @param {object[]} dayMembers - 當天有出現過的人
    * @param {{breakfast:number,lunch:number,dinner:number}} perMealCounts - 每一餐要幾個人洗
    * @param {(memberId: string, meal: string) => boolean} [isAvailable]
-   * @returns {{assignments: object, newWashState: object, queueLength: number}}
+   * @returns {{assignments: object, newWashState: object, queueLength: number, warnings: string[]}}
    */
   function computeWashDay(washState, dayMembers, perMealCounts, isAvailable) {
+    const St = window.App.State;
     const available = isAvailable || (() => true);
+    const fixed = fixedWashers(dayMembers);
     const queue = washQueue(dayMembers);
     const assignments = { breakfast: [], lunch: [], dinner: [] };
+    const warnings = [];
 
-    if (!queue.length) {
-      return { assignments, newWashState: washState || { nextStartId: null }, queueLength: 0 };
+    if (!queue.length && !fixed.length) {
+      return { assignments, newWashState: washState || { nextStartId: null }, queueLength: 0, warnings };
     }
 
     // 從上次停下來的人接著排；那個人已經退伍的話就從隊伍開頭重來
     let cursor = 0;
-    if (washState && washState.nextStartId) {
+    if (queue.length && washState && washState.nextStartId) {
       const idx = queue.findIndex((m) => m.id === washState.nextStartId);
       if (idx >= 0) cursor = idx;
     }
 
     MEAL_KEYS.forEach((meal) => {
       const need = Math.max(0, (perMealCounts && perMealCounts[meal]) || 0);
-      const picked = [];
+
+      // 固定洗碗的人先進去（那一餐在場的才算），剩下的名額才由大家輪
+      const fixedHere = fixed.filter((m) => available(m.id, meal)).map((m) => m.id);
+      if (fixedHere.length > need) {
+        warnings.push(
+          `${St.MEAL_LABELS[meal]}：固定洗碗有 ${fixedHere.length} 位，但這一餐只需要 ${need} 位洗碗，` +
+            `多出來的人這一餐改由其他勤務吸收。請到「勤務設定」確認這個人數的洗碗名額。`
+        );
+      }
+      const picked = fixedHere.slice(0, need);
+      if (!queue.length) {
+        assignments[meal] = picked;
+        return;
+      }
       /*
        * 從游標往後拿人。這一餐不在的人（已離營）跳過，但游標照樣往前，
        * 免得他一直卡在隊伍前面害後面的人輪不到。
@@ -69,10 +100,11 @@ window.App = window.App || {};
 
     return {
       assignments,
-      newWashState: { nextStartId: queue[cursor].id },
+      newWashState: { nextStartId: queue.length ? queue[cursor].id : (washState || {}).nextStartId || null },
       queueLength: queue.length,
+      warnings,
     };
   }
 
-  window.App.WashSchedule = { computeWashDay, washQueue };
+  window.App.WashSchedule = { computeWashDay, washQueue, fixedWashers };
 })();

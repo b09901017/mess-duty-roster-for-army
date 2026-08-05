@@ -9,6 +9,9 @@
  *   抬飲料    2人（固定：陳東霖、陳柏翰），抬完之後也一起包餐盒
  *   包餐盒    剩下的人全部（輪替），沒有人也沒關係
  *
+ * 名冊勾「固定洗碗」的招員在打菜流程裡**只做打菜**，不排蓋便當、不排包餐盒
+ * （使用者指定）。所以他們每一餐都先佔掉打菜的名額，剩下的才由大家輪。
+ *
  * 人不夠時的讓步順序（使用者指定）：
  *   1. 先取消蓋便當，那 2 個名額讓給打菜
  *   2. 還不夠就從最後幾道菜開始改成 1 個人，並跳提醒
@@ -80,24 +83,46 @@ window.App = window.App || {};
     const fixedIds = new Set(riceRoleIds.concat(counting, drinks));
     let pool = present.filter((m) => !fixedIds.has(m.id));
 
+    /*
+     * 固定洗碗的招員只做打菜。先把他們從池子裡拿出來直接放進打菜，
+     * 剩下的打菜名額才由其他人依次數輪；蓋便當與包餐盒的池子也就不會有他們。
+     */
+    const dishOnly = pool.filter((m) => m.fixedDishwash).sort(rosterOrder);
+    pool = pool.filter((m) => !m.fixedDishwash);
+
     let needDish = Math.max(0, dishes) * PER_DISH;
     let needLid = LID_COUNT;
 
+    /*
+     * 打菜名額先給只做打菜的招員。名額比他們還少的話（例如菜色很少），
+     * 多出來的人這一餐沒有打菜位置——那時只好讓他們去包餐盒，並講清楚原因。
+     */
+    const dishFixed = dishOnly.slice(0, needDish);
+    const dishOverflow = dishOnly.slice(needDish);
+    if (dishOverflow.length) {
+      warnings.push(
+        `這一餐只有 ${dishes} 道菜、${needDish} 個打菜名額，固定只做打菜的有 ${dishOnly.length} 位，` +
+          `${dishOverflow.map((m) => m.name).join("、")} 這一餐只好改成包餐盒。`
+      );
+    }
+    let needDishRest = needDish - dishFixed.length;
+
     // 讓步規則 1：人不夠就先不排蓋便當
-    if (pool.length < needDish + needLid) {
+    if (pool.length < needDishRest + needLid) {
       needLid = 0;
     }
     // 讓步規則 2：還是不夠就從最後幾道菜開始改成 1 人
     let shortDishes = 0;
-    if (pool.length < needDish) {
-      shortDishes = needDish - pool.length;
-      needDish = pool.length;
+    if (pool.length < needDishRest) {
+      shortDishes = needDishRest - pool.length;
+      needDishRest = pool.length;
       warnings.push(
-        `這一餐 ${dishes} 道菜需要 ${dishes * PER_DISH} 人打菜，但只剩 ${pool.length} 人可排，有 ${shortDishes} 道菜只會有 1 個人。`
+        `這一餐 ${dishes} 道菜需要 ${dishes * PER_DISH} 人打菜，但只剩 ${dishFixed.length + pool.length} 人可排，有 ${shortDishes} 道菜只會有 1 個人。`
       );
     }
 
-    const serveDish = pickLeast(pool, dutyCounts, "serveDish", needDish);
+    const serveRest = pickLeast(pool, dutyCounts, "serveDish", needDishRest);
+    const serveDish = dishFixed.concat(serveRest).sort(rosterOrder);
     const servedIds = new Set(serveDish.map((m) => m.id));
     pool = pool.filter((m) => !servedIds.has(m.id));
 
@@ -113,7 +138,8 @@ window.App = window.App || {};
     const boxingMembers = servesRice
       ? pool
       : pool.concat(present.filter((m) => riceRoleIds.indexOf(m.id) !== -1)).sort(rosterOrder);
-    const boxing = boxingMembers.map((m) => m.id);
+    // 打菜名額不夠而被擠出來的招員，也只能先去包餐盒（上面已經提醒過）
+    const boxing = boxingMembers.concat(dishOverflow).sort(rosterOrder).map((m) => m.id);
 
     return {
       assignments: {

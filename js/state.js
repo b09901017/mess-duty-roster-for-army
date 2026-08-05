@@ -8,7 +8,7 @@ window.App = window.App || {};
 
   // 名冊種子每次異動就 +1。舊資料（含從雲端還原的）rosterVersion 對不上時，
   // 會自動換上新名冊，這樣改名冊不用叫使用者清快取，也不會被雲端的舊名冊蓋回去。
-  const ROSTER_VERSION = 6;
+  const ROSTER_VERSION = 7;
 
   /*
    * 勤務人數對照表與預設菜量的版本。
@@ -276,6 +276,12 @@ window.App = window.App || {};
         skipDinnerCleanup: isNewcomer,
         // 招員不排換水（使用者指定），旅部連可以
         skipWater: isNewcomer,
+        /*
+         * 招員五位（261-9~13）三餐都固定洗碗，不進輪替、也不做其他勤務。
+         * 他們自己談好的：寧願三餐都洗碗，也不要被打散排到廚餘、擦桌子那些。
+         * 「那一餐洗碗的人不排其他勤務」是既有規則，所以勾了這個就自動不會被排到。
+         */
+        fixedDishwash: isNewcomer,
       });
     });
     r263.forEach(([name, dischargeDate, leaveMode], idx) => {
@@ -293,6 +299,7 @@ window.App = window.App || {};
         skipLaundry: false,
         skipDinnerCleanup: false,
         skipWater: false,
+        fixedDishwash: false,
       });
     });
     brigade.forEach((name, idx) => {
@@ -312,6 +319,7 @@ window.App = window.App || {};
         skipLaundry: false,
         skipDinnerCleanup: false,
         skipWater: false,
+        fixedDishwash: false,
       });
     });
     return members;

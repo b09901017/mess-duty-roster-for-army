@@ -44,7 +44,7 @@ window.App.UI = window.App.UI || {};
           </select>
         </td>
         <td data-label="狀態">${statusChip}</td>
-        <td data-label="免排">
+        <td data-label="免排／固定">
           <label class="tick"><input type="checkbox" class="skip-laundry" data-id="${m.id}" ${
             m.skipLaundry ? "checked" : ""
           }> 洗衣籃</label>
@@ -54,6 +54,9 @@ window.App.UI = window.App.UI || {};
           <label class="tick"><input type="checkbox" class="skip-water" data-id="${m.id}" ${
             m.skipWater ? "checked" : ""
           }> 換水</label>
+          <label class="tick"><input type="checkbox" class="fixed-dishwash" data-id="${m.id}" ${
+            m.fixedDishwash ? "checked" : ""
+          }> 🍽️ 固定洗碗</label>
         </td>
         <td data-label="打菜固定角色">
           <select class="serving-role-select" data-id="${m.id}">
@@ -126,7 +129,7 @@ window.App.UI = window.App.UI || {};
         }
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>打菜固定角色</th><th>操作</th></tr></thead>
+          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排／固定</th><th>打菜固定角色</th><th>操作</th></tr></thead>
           <tbody>${c.list.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
@@ -199,6 +202,19 @@ window.App.UI = window.App.UI || {};
     root.querySelectorAll(".skip-water").forEach((box) => {
       box.addEventListener("change", () => {
         window.App.Roster.updateMember(box.dataset.id, { skipWater: box.checked });
+        window.App.ScheduleEngine.rebuildAll();
+        render();
+        rerenderAll();
+      });
+    });
+
+    /*
+     * 「固定洗碗」＝三餐都洗碗、不進輪替，也不做廚餘/擦桌子/清地板/撤收，
+     * 打菜流程裡只做打菜。招員五位預設勾起來。
+     */
+    root.querySelectorAll(".fixed-dishwash").forEach((box) => {
+      box.addEventListener("change", () => {
+        window.App.Roster.updateMember(box.dataset.id, { fixedDishwash: box.checked });
         window.App.ScheduleEngine.rebuildAll();
         render();
         rerenderAll();

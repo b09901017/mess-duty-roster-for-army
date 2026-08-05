@@ -176,6 +176,7 @@ window.App = window.App || {};
       dishwashCounts,
       availableForMeal
     );
+    (washDay.warnings || []).forEach((w) => warnings.push(w));
 
     // 撤收要知道每一餐誰在洗碗（洗碗的人那一餐不排撤收），所以一定要排在洗碗之後
     const cleanupDay = window.App.CleanupSchedule.computeCleanupDay(
@@ -344,6 +345,8 @@ window.App = window.App || {};
       daily,
       warnings,
       sizeConfig: sizeByMeal.dinner,
+      // 撤收那天「本來要排幾個人」，稽核腳本拿來比對名額有沒有坐滿
+      cleanupDesired: cleanupDay.desiredSizes,
       newWashState,
       newWaterState: waterDay.newWaterState,
       newLaundryState,
@@ -383,6 +386,7 @@ window.App = window.App || {};
         daily: result.daily,
         warnings: result.warnings.slice(),
         sizeConfig: result.sizeConfig,
+        cleanupDesired: result.cleanupDesired,
       };
 
       running.dutyCounts = result.newDutyCounts;

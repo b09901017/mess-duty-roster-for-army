@@ -154,6 +154,16 @@ const chromium = loadChromium();
             if (mm && mm.servingRole && role !== 'boxing') fail(d, `${meal} ${nm(id)} 有固定角色卻被排到 ${role}`);
           });
         });
+        // ── 固定洗碗的招員：三餐都洗碗、打菜只做打菜、不做其他任何勤務 ──
+        const fixedWash = present.filter(id => (St.memberById(id)||{}).fixedDishwash);
+        fixedWash.forEach(id => {
+          if (!(m.dishwash||[]).includes(id)) fail(d, `${meal} 固定洗碗的 ${nm(id)} 沒有被排到洗碗`);
+          ['foodwaste','wipe','floor','cleanup'].forEach(k => {
+            if ((m[k]||[]).includes(id)) fail(d, `${meal} 固定洗碗的 ${nm(id)} 被排到 ${k}`);
+          });
+          if ((sv.lid||[]).includes(id)) fail(d, `${meal} 只做打菜的 ${nm(id)} 被排到蓋便當`);
+        });
+
         // 打菜人數：足夠時就是 2×菜數
         const dishes = m.dishes;
         // 打菜/蓋便當的候選池 = 在場的人扣掉「名冊上有固定角色」的人（不打飯的那餐也一樣扣）
@@ -161,8 +171,16 @@ const chromium = loadChromium();
         const poolSize = present.length - fixedCount;
         const wantDish = Math.min(dishes * 2, poolSize);
         if ((sv.serveDish||[]).length !== wantDish) fail(d, `${meal} 打菜應 ${wantDish} 人，實際 ${(sv.serveDish||[]).length} 人`);
-        // 蓋便當：人夠就是2人，不夠就是0
-        const wantLid = poolSize >= dishes*2 + 2 ? 2 : 0;
+        // 打菜名額夠的話，只做打菜的招員一定全部在裡面
+        if (wantDish >= fixedWash.length) {
+          fixedWash.forEach(id => {
+            if (!(sv.serveDish||[]).includes(id)) fail(d, `${meal} 只做打菜的 ${nm(id)} 沒有被排到打菜`);
+            if ((sv.boxing||[]).includes(id)) fail(d, `${meal} 只做打菜的 ${nm(id)} 被排到包餐盒`);
+          });
+        }
+        // 蓋便當：人夠就是2人，不夠就是0。候選池不含只做打菜的招員
+        const lidPool = poolSize - fixedWash.length;
+        const wantLid = lidPool >= Math.max(0, dishes*2 - fixedWash.length) + 2 ? 2 : 0;
         if ((sv.lid||[]).length !== wantLid) fail(d, `${meal} 蓋便當應 ${wantLid} 人，實際 ${(sv.lid||[]).length} 人`);
 
         // 送便當的兩位只能排晚餐撤收（早、中在外面跑便當）；那一餐洗碗的人也不能排
@@ -180,12 +198,25 @@ const chromium = loadChromium();
       const cleanupAll = St.MEAL_KEYS.flatMap(meal => sc.meals[meal].cleanup || []);
       const dup = cleanupAll.filter((x, i) => cleanupAll.indexOf(x) !== i);
       if (dup.length) fail(d, `撤收同一天重複排到：${names([...new Set(dup)])}`);
+
       /*
        * 撤收改成「固定名額、做最少的先輪」，不再要求每個人每天都輪到一次。
        * 所以檢查的是名額有沒有坐滿，以及有沒有排到不該排的人。
        */
-      const cleanupPool = active.slice();
-      const desired = St2.CleanupSchedule.cleanupSizes(cleanupPool.length);
+      /*
+       * 固定洗碗的招員完全不排撤收，所以名額是照「扣掉他們之後還有幾個人」算的。
+       * 而且引擎會先問「今天最多真的排得出幾個人次」再查階梯，人頭數會高估
+       * （退伍當天只剩早中、送便當只有晚上），所以直接拿引擎當天的目標來比。
+       */
+      const cleanupPool = active.filter(x => !x.fixedDishwash);
+      const desired = sc.cleanupDesired || St2.CleanupSchedule.cleanupSizes(cleanupPool.length);
+      cleanupAll.forEach(id => {
+        if ((St.memberById(id) || {}).fixedDishwash) fail(d, `固定洗碗的 ${nm(id)} 被排到撤收`);
+      });
+      const ladderHit = [desired.breakfast, desired.lunch, desired.dinner].join('/');
+      if (desired.breakfast + desired.lunch + desired.dinner > cleanupPool.length) {
+        fail(d, `撤收名額 ${ladderHit} 超過排得動撤收的 ${cleanupPool.length} 人`);
+      }
       const capacityOf = meal => cleanupPool.filter(x => {
         if (!St.isActiveOn(x, d, meal)) return false;
         if (isShopper(x.id) && meal !== 'dinner') return false;
@@ -209,7 +240,7 @@ const chromium = loadChromium();
       });
       if (shortTotal) {
         const total = St.MEAL_KEYS.reduce((a, meal) => a + desired[meal], 0);
-        notes.push(`${d} 撤收名額 ${total} 個、當天 ${cleanupPool.length} 人，少坐了 ${shortTotal} 個`
+        notes.push(`${d} 撤收名額 ${total} 個、排得動的 ${cleanupPool.length} 人，少坐了 ${shortTotal} 個`
           + `（早${sc.meals.breakfast.cleanup.length}／中${sc.meals.lunch.cleanup.length}／晚${sc.meals.dinner.cleanup.length}）`);
       }
 

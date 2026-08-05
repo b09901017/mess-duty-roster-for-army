@@ -8,7 +8,7 @@ window.App = window.App || {};
 
   // 名冊種子每次異動就 +1。舊資料（含從雲端還原的）rosterVersion 對不上時，
   // 會自動換上新名冊，這樣改名冊不用叫使用者清快取，也不會被雲端的舊名冊蓋回去。
-  const ROSTER_VERSION = 5;
+  const ROSTER_VERSION = 6;
 
   /*
    * 勤務人數對照表與預設菜量的版本。
@@ -21,7 +21,7 @@ window.App = window.App || {};
    * 涵蓋：勤務人數對照表、預設菜量、採買結束日。
    * 使用者自己逐日調過的菜量（menuSizes）不會被動到。
    */
-  const CONFIG_VERSION = 6;
+  const CONFIG_VERSION = 7;
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
@@ -210,11 +210,11 @@ window.App = window.App || {};
 
   // 打菜流程的固定角色（使用者指定）
   const SEED_SERVING_ROLES = {
-    "263-2": "rice", // 呂胤玄 打飯
-    "263-10": "rice", // 田權楨 打飯
+    "263-1": "rice", // 陳東霖 打飯
+    "263-8": "rice", // 呂承鴻 打飯
     "263-7": "count", // 顏允彣 計數
     "261-4": "count", // 鄧旭辰 計數
-    "263-1": "drinks", // 陳東霖 抬飲料
+    "263-3": "drinks", // 林柏翰 抬飲料
     "261-3": "drinks", // 陳柏翰 抬飲料
   };
 
@@ -250,7 +250,7 @@ window.App = window.App || {};
     ];
 
     // 8/6 中午報到的旅部連 4 位。姓名確認後直接在「名冊」分頁改。
-    const brigade = ["旅部連1", "旅部連2", "旅部連3", "旅部連4"];
+    const brigade = ["朱醒醒", "林玟圻", "陳景琪", "弘"];
 
     const members = [];
     r261.forEach(([name, dischargeDate, leaveMode, joinDate], idx) => {
@@ -470,9 +470,12 @@ window.App = window.App || {};
       configVersion: CONFIG_VERSION,
       members,
       dutySizeTable: defaultDutySizeTable(),
-      shoppingRoster: defaultShoppingRoster(),
       shoppingTimes: defaultShoppingTimes(),
-      shoppingUntil: DEFAULT_SHOPPING_UNTIL,
+      /*
+       * 採買沒有固定星期也沒有固定人數，逐日指定：{ "2026-08-07": ["261-3", "263-5"] }。
+       * 名單裡的人那天早餐、中餐完全不排，晚上才歸隊。
+       */
+      shoppingByDate: {},
       menuDefaults: defaultMenuDefaults(),
       // 只存跟預設不一樣的那幾格：{ "2026-08-05": { lunch: 4 } }
       menuSizes: {},
@@ -517,19 +520,21 @@ window.App = window.App || {};
       washState: Object.assign({}, base.washState, parsed.washState),
       laundryState: Object.assign({}, base.laundryState, parsed.laundryState),
       waterState: Object.assign({}, base.waterState, parsed.waterState),
-      shoppingRoster: Object.assign({}, base.shoppingRoster, parsed.shoppingRoster),
       shoppingTimes: Object.assign({}, base.shoppingTimes, parsed.shoppingTimes),
       menuDefaults: Object.assign({}, base.menuDefaults, parsed.menuDefaults),
     });
     // 舊版的「臨時登記採買」已改成固定星期表；撤收也不再用固定分組
     delete merged.shoppingLog;
     delete merged.cleanupGroups;
+    // 採買從「固定星期表 ＋ 結束日」改成「逐日指定名單」
+    delete merged.shoppingRoster;
+    delete merged.shoppingUntil;
+    if (!merged.shoppingByDate || typeof merged.shoppingByDate !== "object") merged.shoppingByDate = {};
     if (!merged.overrides || typeof merged.overrides !== "object") merged.overrides = {};
 
     // 名冊有改版就換上新名冊與採買設定（已排好的日期會依新設定重播，不會遺失）
     if (parsed.rosterVersion !== ROSTER_VERSION) {
       merged.members = base.members;
-      merged.shoppingUntil = base.shoppingUntil;
       merged.rosterVersion = ROSTER_VERSION;
     }
 
@@ -541,7 +546,6 @@ window.App = window.App || {};
       merged.dutySizeTable = base.dutySizeTable;
       merged.menuDefaults = base.menuDefaults;
       merged.menuSizes = {}; // 逐日菜量也一起回到預設，避免舊值蓋掉新的預設
-      merged.shoppingUntil = base.shoppingUntil;
       merged.configVersion = CONFIG_VERSION;
       // 程式裡預先鎖好的日子換成新版（內容改了就要換，不然舊的會一直留著）
       Object.keys(base.overrides).forEach((date) => {

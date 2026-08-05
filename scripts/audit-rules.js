@@ -57,21 +57,22 @@ const chromium = loadChromium();
       const activeIds = set(active.map(m => m.id));
       const activeAt = (id, meal) => { const mm = St.memberById(id); return mm && St.isActiveOn(mm, d, meal); };
       const delivery = active.filter(m => m.fixedRole === 'delivery').map(m => m.id);
-      const shopper = (sc.daily.shopping || [])[0] || null;
+      const shoppers = (sc.daily.shopping || []).slice();
+      const isShopper = id => shoppers.indexOf(id) !== -1;
 
-      // 採買必須符合星期表
-      const wd = new Date(d + 'T00:00:00').getDay();
-      const rosterPick = S.shoppingRoster[wd];
-      const pastShoppingEnd = S.shoppingUntil && d > S.shoppingUntil;
-      const rosterActive = rosterPick && activeIds.has(rosterPick) && !pastShoppingEnd;
-      if (pastShoppingEnd && shopper) fail(d, `已過採買結束日 ${S.shoppingUntil} 卻還排了採買 ${nm(shopper)}`);
-      if (rosterActive && shopper !== rosterPick) fail(d, `採買應為 ${nm(rosterPick)} 卻是 ${shopper ? nm(shopper) : '無'}`);
-      if (!rosterActive && shopper) fail(d, `星期表沒排採買，卻出現 ${nm(shopper)}`);
+      // 採買是逐日指定的名單，班表上的人必須跟設定的一致，而且那天要在營
+      const wanted = (S.shoppingByDate[d] || []).filter(id => {
+        const mm = St.memberById(id);
+        return mm && St.isActiveOn(mm, d, 'breakfast');
+      });
+      if (!eq(set(shoppers), set(wanted))) {
+        fail(d, `採買名單不符：設定 ${names(wanted)}，班表 ${names(shoppers)}`);
+      }
 
       St.MEAL_KEYS.forEach(meal => {
         const m = sc.meals[meal];
         const isOff = meal === 'breakfast' || meal === 'lunch';
-        const absent = shopper && isOff ? [shopper] : [];
+        const absent = isOff ? shoppers.slice() : [];
         const present = [...activeIds].filter(id => !absent.includes(id) && activeAt(id, meal));
 
         // 對照表是按「扣掉送便當之後的人數」查的，四項加起來要剛好等於那個數
@@ -177,7 +178,7 @@ const chromium = loadChromium();
       const desired = St2.CleanupSchedule.cleanupSizes(cleanupPool.length);
       const capacityOf = meal => cleanupPool.filter(x => {
         if (!St.isActiveOn(x, d, meal)) return false;
-        if (shopper === x.id && meal !== 'dinner') return false;
+        if (isShopper(x.id) && meal !== 'dinner') return false;
         if (x.fixedRole === 'delivery' && meal !== 'dinner') return false;
         if (meal === 'dinner' && x.skipDinnerCleanup) return false;
         if ((sc.meals[meal].dishwash || []).includes(x.id)) return false;
@@ -208,6 +209,7 @@ const chromium = loadChromium();
         if ((sc.meals[meal].water || []).length) fail(d, `${meal} 不該有換水`);
       });
       const waterCap = active.filter(x => !x.skipWater && St.isActiveOn(x, d, 'breakfast')
+        && !isShopper(x.id)
         && !(sc.meals.breakfast.cleanup || []).includes(x.id)).length;
       // 換水從 WATER_START 才開始，之前的日子不該有
       const waterWant = d < St.WATER_START ? 0 : Math.min(St.WATER_COUNT, waterCap);
@@ -221,12 +223,21 @@ const chromium = loadChromium();
       const waterDup = water.filter((x, i) => water.indexOf(x) !== i);
       if (waterDup.length) fail(d, `換水重複排到：${names([...new Set(waterDup)])}`);
 
-      // 採買的人要在晚餐撤收，除非他晚餐剛好在洗碗（洗碗的人不排撤收）
-      const shopperMem = shopper && St.memberById(shopper);
-      if (shopper && St.isActiveOn(shopperMem, d, 'dinner')
-          && !(sc.meals.dinner.dishwash || []).includes(shopper)
-          && !sc.meals.dinner.cleanup.includes(shopper))
-        fail(d, `採買的 ${nm(shopper)} 沒在晚餐洗碗，也沒被排到晚餐撤收`);
+      /*
+       * 採買的人早、中完全不排，晚上歸隊。撤收現在是「固定名額、做最少的先輪」，
+       * 所以不能硬性要求他一定被排到晚餐撤收——只檢查早/中真的沒排到他。
+       */
+      shoppers.forEach(id => {
+        ['breakfast', 'lunch'].forEach(meal => {
+          const m = sc.meals[meal];
+          ['dishwash','foodwaste','wipe','floor','delivery','cleanup','water','carryVehicle'].forEach(k => {
+            if ((m[k] || []).includes(id)) fail(d, `${meal} 採買的 ${nm(id)} 不該被排到 ${k}`);
+          });
+          Object.keys(m.serving || {}).forEach(role => {
+            if ((m.serving[role] || []).includes(id)) fail(d, `${meal} 採買的 ${nm(id)} 不該出現在打菜的 ${role}`);
+          });
+        });
+      });
 
       // 新人不排洗衣籃、不排晚上撤收
       S.members.filter(x => x.skipLaundry).forEach(x => {

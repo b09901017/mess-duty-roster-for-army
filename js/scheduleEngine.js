@@ -90,7 +90,7 @@ window.App = window.App || {};
   /**
    * 純計算：不會修改任何全域狀態，只根據傳入的 snapshot 算出這一天的班表。
    * @param {string} dateStr
-   * @param {{members, dutyCounts, washState, laundryState, dutySizeTable, shoppingRoster}} snapshot
+   * @param {{members, dutyCounts, washState, laundryState, dutySizeTable, shoppingByDate}} snapshot
    */
   function computeDay(dateStr, snapshot) {
     const St = window.App.State;
@@ -98,17 +98,17 @@ window.App = window.App || {};
     const dayMembers = snapshot.members.filter((m) => St.isActiveOn(m, dateStr));
     const warnings = [];
 
-    const shopper = window.App.ShoppingRoster.shopperFor(
-      dateStr,
-      snapshot.members,
-      snapshot.shoppingRoster,
-      snapshot.shoppingUntil
-    );
-    if (shopper.warning) warnings.push(shopper.warning);
-    const shopperId = shopper.memberId;
-    const SHOPPER_OFF_MEALS = ["breakfast", "lunch"];
+    /*
+     * 採買沒有固定星期、也沒有固定人數，是逐日指定的名單，一天可以派好幾個人。
+     * 他們早餐、中餐整個不在，所以下面所有「那一餐在不在」的判斷都會把他們排除，
+     * 人數、洗碗佇列、撤收名額、換水就會自動跟著少。
+     */
+    const shoppers = window.App.ShoppingRoster.shoppersFor(dateStr, snapshot.members, snapshot.shoppingByDate);
+    shoppers.warnings.forEach((w) => warnings.push(w));
+    const shopperIds = new Set(shoppers.ids);
+    const SHOPPER_OFF_MEALS = window.App.ShoppingRoster.OFF_MEALS;
     const isOffForShopping = (memberId, meal) =>
-      shopperId != null && memberId === shopperId && SHOPPER_OFF_MEALS.indexOf(meal) !== -1;
+      shopperIds.has(memberId) && SHOPPER_OFF_MEALS.indexOf(meal) !== -1;
 
     const memberById = {};
     snapshot.members.forEach((m) => (memberById[m.id] = m));
@@ -286,7 +286,7 @@ window.App = window.App || {};
     const daily = {
       laundryUp: laundryDay.up,
       laundryDown: laundryDay.down,
-      shopping: shopperId ? [shopperId] : [],
+      shopping: shoppers.ids.slice(),
     };
     let newLaundryState = laundryDay.newLaundryState;
     let newWashState = washDay.newWashState;
@@ -344,8 +344,7 @@ window.App = window.App || {};
       laundryState: state.laundryState,
       waterState: state.waterState,
       dutySizeTable: state.dutySizeTable,
-      shoppingRoster: state.shoppingRoster,
-      shoppingUntil: state.shoppingUntil,
+      shoppingByDate: state.shoppingByDate,
       overrides: state.overrides,
     };
 
@@ -392,8 +391,7 @@ window.App = window.App || {};
       laundryState: state.laundryState,
       waterState: state.waterState,
       dutySizeTable: state.dutySizeTable,
-      shoppingRoster: state.shoppingRoster,
-      shoppingUntil: state.shoppingUntil,
+      shoppingByDate: state.shoppingByDate,
       overrides: state.overrides,
     };
   }
@@ -407,8 +405,7 @@ window.App = window.App || {};
     const snapshot = {
       members: state.members,
       dutySizeTable: state.dutySizeTable,
-      shoppingRoster: state.shoppingRoster,
-      shoppingUntil: state.shoppingUntil,
+      shoppingByDate: state.shoppingByDate,
       overrides: state.overrides,
       dutyCounts: {},
       washState: window.App.State.defaultWashState(),

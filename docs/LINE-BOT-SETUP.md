@@ -86,9 +86,9 @@
 | `FIREBASE_PROJECT_ID` | firebaseConfig 的 projectId | ✅ |
 | `ROSTER_ROOM_CODE` | 雲端同步的房間代碼 | ✅ |
 | `PUBLIC_BASE_URL` | 你的 Vercel 網址（結尾不要斜線） | 建議填 |
-| `LIFF_ID` | 步驟 4 會拿到 | 步驟 4 再補 |
-| `LIFF_CHANNEL_ID` | 步驟 4 會拿到 | 步驟 4 再補 |
-| `STATE_READ_KEY` | 自己隨便打一串亂碼 | 建議填 |
+| `LIFF_ID` | 步驟 4 會拿到（做法 A 不用填） | 選填 |
+| `LIFF_CHANNEL_ID` | **LINE Login channel** 的 Channel ID（做法 A 不用填） | 選填 |
+| `STATE_READ_KEY` | 自己隨便打一串亂碼 | ✅ 建議填 |
 
 填完要 **Deployments → 最新那筆 → Redeploy**，環境變數才會生效。
 
@@ -109,19 +109,47 @@
 
 ---
 
-## 步驟 4：建 LIFF（公平性總覽的「看完整」）
+## 步驟 4：公平性總覽的「看完整」
 
-1. LINE Developers → 剛剛那個 channel → **LIFF** 分頁 → **Add**
-2. 填：
+有兩種做法，**先看你要哪一種**。
+
+> ⚠️ LINE 從 2024 年底起**不再允許把 LIFF 加到 Messaging API channel**。
+> 在 Messaging API channel 的 LIFF 分頁只會看到
+> 「You can no longer add LIFF apps to a Messaging API channel」。
+> 要用 LIFF 就得**另外開一個 LINE Login channel**（做法 B）。
+
+### 做法 A：不開 LIFF，直接開網頁（最省事）
+
+按鈕會用 LINE 的內建瀏覽器開一般網頁，畫面內容完全一樣。
+
+1. Vercel 的 `LIFF_ID` **留空不要填**
+2. `STATE_READ_KEY` 填一串自己想的亂碼
+3. Redeploy
+
+程式偵測到沒有 `LIFF_ID` 就會自動改用 `https://你的網址/liff/?k=<STATE_READ_KEY>`。
+
+代價：那串 key 會出現在按鈕的網址裡，群組成員長按複製就看得到。因為知道 key 的人就能看到整份名冊，所以**請當成密碼看待**，不要用好猜的字串。以你們的情況（本來就是同一個群組的人）通常沒差。
+
+### 做法 B：正式的 LIFF（網址上不帶秘密）
+
+多開一個 LINE Login channel，用 LINE 的身分驗證取代那串 key。
+
+1. LINE Developers Console → **跟 Messaging API channel 同一個 Provider** → **Create a new channel** → 選 **LINE Login**
+2. 建立時 **App types** 勾 **Web app**
+3. 建好之後進這個新 channel 的 **LIFF** 分頁 → **Add**
    - **LIFF app name**：公平性總覽
    - **Size**：**Full**
    - **Endpoint URL**：`https://你的網址/liff/`
    - **Scopes**：勾 **profile** 和 **openid**（`openid` 一定要勾，不然拿不到身分驗證用的 token）
-   - **Bot link feature**：Off 就好
-3. 建好之後複製 **LIFF ID**（長得像 `2000000000-abcdefgh`）
-4. 回 Vercel 把 `LIFF_ID` 填成這串
-5. `LIFF_CHANNEL_ID` 填 **Basic settings** 分頁的 **Channel ID**（純數字）
-6. Redeploy
+   - **Bot link feature**：Off 就好（機器人你已經直接邀進群組了）
+4. 複製 **LIFF ID**（長得像 `2000000000-abcdefgh`）→ 填進 Vercel 的 `LIFF_ID`
+5. **`LIFF_CHANNEL_ID` 填這個 LINE Login channel 的 Channel ID**（純數字，在它自己的 **Basic settings** 分頁）
+
+   ⚠️ **不是** Messaging API channel 的 Channel ID。ID token 是 Login channel 簽發的，填錯會一直驗不過。
+6. 這個 LINE Login channel 要 **Published**（不是 Developing）。停在 Developing 的話只有你自己開得起來，群組其他人會被擋。狀態在該 channel 首頁上方切換。
+7. Redeploy
+
+`STATE_READ_KEY` 建議還是留著，這樣你在電腦的一般瀏覽器也開得起來。
 
 ---
 
@@ -199,7 +227,7 @@ Vercel 會擋掉未登入的請求並回 401，LINE 當然過不了。特別容�
 | 機器人已讀不回 | `LINE_CHANNEL_ACCESS_TOKEN` 沒填／填錯；或 Auto-reply 沒關 |
 | 回「讀不到班表資料」 | `FIREBASE_*` 或 `ROSTER_ROOM_CODE` 填錯，或 App 還沒上傳過 |
 | 卡片出來但圖是破的 | `PUBLIC_BASE_URL` 沒填，或 Deployment Protection 擋住 `/api/fairness` |
-| 「看完整」點進去說沒有權限 | `LIFF_CHANNEL_ID` 沒填，或 LIFF 的 scope 沒勾 `openid` |
+| 「看完整」點進去說沒有權限 | `LIFF_CHANNEL_ID` 填成 Messaging API channel 的了（要填 LINE Login channel 的），或 LIFF 的 scope 沒勾 `openid`，或 Login channel 還停在 Developing |
 | 群組裡拉不進機器人 | **Allow bot to join group chats** 沒開 |
 
 Vercel 的 **Deployments → 該筆 → Functions** 可以看到每次呼叫的 log，錯誤訊息都會印在那裡。

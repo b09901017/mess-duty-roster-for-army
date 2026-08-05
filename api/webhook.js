@@ -139,11 +139,25 @@ function diagnostics() {
       STATE_READ_KEY: has("STATE_READ_KEY"),
     },
     缺少的必填項: missing,
+    看完整按鈕: liffButtonMode(),
     下一步:
       missing.length > 0
         ? `到 Vercel 的 Settings → Environment Variables 補上 ${missing.join("、")}，然後一定要 Redeploy 才會生效。`
         : "環境變數都有了。如果 Verify 還是 401，請看 Vercel 的 Functions log，裡面會寫是簽章不符還是讀不到 body。",
   };
+}
+
+/** 公平性總覽那張卡片的「看完整」現在會連到哪裡、需不需要補設定 */
+function liffButtonMode() {
+  if (process.env.LIFF_ID) {
+    return process.env.LIFF_CHANNEL_ID
+      ? "LIFF 模式：按鈕開 liff.line.me，用 LINE 身分驗證。"
+      : "⚠️ 設了 LIFF_ID 但沒設 LIFF_CHANNEL_ID，點進去會驗不過。請補上「LINE Login channel」的 Channel ID 並 Redeploy。";
+  }
+  if (process.env.STATE_READ_KEY) {
+    return "網頁模式：按鈕開 /liff/?k=<STATE_READ_KEY>。注意舊卡片上的按鈕帶的是當時的金鑰，改過設定要重新叫一次「今日勤務」。";
+  }
+  return "⚠️ LIFF_ID 與 STATE_READ_KEY 都沒設，按鈕會連到沒有金鑰的網址，點進去會顯示「網址上沒有帶金鑰」。請設一個 STATE_READ_KEY 並 Redeploy。";
 }
 
 module.exports = async (req, res) => {

@@ -185,6 +185,8 @@ curl -i https://你的網址/api/webhook
 |--------|------|--------|
 | 一份 JSON，`"ok": true` | 函式活著、環境變數齊全 | 問題在簽章，往下看「Verify 顯示 401」 |
 | 一份 JSON，`"ok": false` | 函式活著，但**環境變數缺**（JSON 裡的「缺少的必填項」會列出來） | 補上，然後**一定要 Redeploy** |
+
+診斷 JSON 裡的 **`看完整按鈕`** 那一欄會直接告訴你那顆按鈕現在是哪種模式、缺什麼設定。
 | **Vercel 的登入頁 / `Authentication Required`** | **Deployment Protection 把請求擋掉了**，根本沒進到程式 | 見下面 |
 | 404 | 網址打錯 | 確認結尾是 `/api/webhook` |
 
@@ -227,7 +229,10 @@ Vercel 會擋掉未登入的請求並回 401，LINE 當然過不了。特別容�
 | 機器人已讀不回 | `LINE_CHANNEL_ACCESS_TOKEN` 沒填／填錯；或 Auto-reply 沒關 |
 | 回「讀不到班表資料」 | `FIREBASE_*` 或 `ROSTER_ROOM_CODE` 填錯，或 App 還沒上傳過 |
 | 卡片出來但圖是破的 | `PUBLIC_BASE_URL` 沒填，或 Deployment Protection 擋住 `/api/fairness` |
-| 「看完整」點進去說沒有權限 | `LIFF_CHANNEL_ID` 填成 Messaging API channel 的了（要填 LINE Login channel 的），或 LIFF 的 scope 沒勾 `openid`，或 Login channel 還停在 Developing |
+| 「看完整」點進去說**網址上沒有帶金鑰** | 卡片是在你設 `STATE_READ_KEY` **之前**產生的，按鈕上沒有金鑰。設好、Redeploy，然後**重新叫一次「今日勤務」**拿新卡片 |
+| 「看完整」說**金鑰跟伺服器設定的不一樣** | 改了 `STATE_READ_KEY` 但沒 Redeploy，或用的是舊卡片 |
+| 「看完整」說**伺服器沒有設定 STATE_READ_KEY** | 就是沒設，補上並 Redeploy |
+| 「看完整」說 **LINE 身分驗證沒過** | `LIFF_CHANNEL_ID` 填成 Messaging API channel 的了（要填 LINE Login channel 的），或 scope 沒勾 `openid`，或 Login channel 還停在 Developing |
 | 群組裡拉不進機器人 | **Allow bot to join group chats** 沒開 |
 
 Vercel 的 **Deployments → 該筆 → Functions** 可以看到每次呼叫的 log，錯誤訊息都會印在那裡。

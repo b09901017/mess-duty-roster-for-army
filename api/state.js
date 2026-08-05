@@ -53,9 +53,37 @@ async function authorize(req) {
   }
 
   const url = new URL(req.url, "http://localhost");
-  if (key && url.searchParams.get("k") === key) return { ok: true };
+  const supplied = url.searchParams.get("k");
 
-  return { ok: false, status: 401, error: "沒有權限讀取這份資料。" };
+  if (!key) {
+    return {
+      ok: false,
+      status: 500,
+      error:
+        "伺服器沒有設定 STATE_READ_KEY，所以沒辦法用網址上的金鑰驗證。" +
+        "請到 Vercel 的 Settings → Environment Variables 加上 STATE_READ_KEY，然後 Redeploy。",
+    };
+  }
+  if (!supplied) {
+    return {
+      ok: false,
+      status: 401,
+      error:
+        "網址上沒有帶金鑰。請從 LINE 卡片的「看完整」按鈕進來，" +
+        "或自己在網址後面加上 ?k=你的STATE_READ_KEY。",
+    };
+  }
+  if (supplied !== key) {
+    return {
+      ok: false,
+      status: 401,
+      error:
+        "網址上的金鑰跟伺服器設定的 STATE_READ_KEY 不一樣。" +
+        "常見原因：改了環境變數但沒有 Redeploy，或是舊卡片上的按鈕還帶著舊金鑰（重新叫一次今日勤務就會拿到新的）。",
+    };
+  }
+
+  return { ok: true };
 }
 
 module.exports = async (req, res) => {

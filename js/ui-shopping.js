@@ -34,11 +34,19 @@ window.App.UI = window.App.UI || {};
     return dates;
   }
 
-  /** 那一天可以被派去採買的人（早上還在營的） */
-  function candidatesOn(dateStr) {
+  /** 那一天可以掃廁所的人：早上在營就行，含「只排掃廁所」的愷宸 */
+  function toiletCandidatesOn(dateStr) {
     const S = window.App.State;
     return S.get()
       .members.filter((m) => S.isActiveOn(m, dateStr, "breakfast"))
+      .sort(S.rosterOrder);
+  }
+
+  /** 那一天可以被派去採買的人（早上還在營的，不含只排掃廁所的） */
+  function candidatesOn(dateStr) {
+    const S = window.App.State;
+    return S.get()
+      .members.filter((m) => S.isActiveOn(m, dateStr, "breakfast") && !m.dutyExempt)
       .sort(S.rosterOrder);
   }
 
@@ -67,7 +75,7 @@ window.App.UI = window.App.UI || {};
      * 那天要去採買的人不列進選項：他 9 點還在外面。
      */
     const toiletId = toilet[0] || "";
-    const toiletOptions = candidates
+    const toiletOptions = toiletCandidatesOn(dateStr)
       .filter((m) => picked.indexOf(m.id) === -1 || m.id === toiletId)
       .map(
         (m) =>
@@ -80,7 +88,7 @@ window.App.UI = window.App.UI || {};
      * 選單本身已經濾掉那天要採買的人，但順序反過來也會發生：
      * 先選好掃廁所，之後才把同一個人勾成採買。這時舊的選擇還留著，要講出來。
      */
-    const toiletGhost = toiletId && !candidates.some((m) => m.id === toiletId);
+    const toiletGhost = toiletId && !toiletCandidatesOn(dateStr).some((m) => m.id === toiletId);
     const toiletIsShopper = toiletId && picked.indexOf(toiletId) !== -1;
 
     const chips = [];
@@ -118,7 +126,7 @@ window.App.UI = window.App.UI || {};
             : ""
         }
 
-        <p class="section-tag">🚻 掃廁所（早上9點）</p>
+        <p class="section-tag">🚻 掃廁所（0900、2100）</p>
         <div class="row" style="margin:10px 0">
           <select class="toilet-pick" data-date="${dateStr}">
             <option value="">（還沒抽）</option>
@@ -183,8 +191,8 @@ window.App.UI = window.App.UI || {};
           班表的人數、洗碗佇列、撤收名額會自動跟著少。集合時間會印在文字班表上。
         </p>
         <p class="hint">
-          <strong>🚻 掃廁所</strong>：早上9點、一天一位，爬梯子抽到誰就選誰。
-          9 點是早餐收完之後的事，<strong>不影響他當天其他勤務</strong>，三餐照排。
+          <strong>🚻 掃廁所</strong>：0900 與 2100 兩個時段，同一位包辦，爬梯子抽到誰就選誰。
+          這是三餐之外的時段，<strong>不影響他當天其他勤務</strong>。
           那天要去採買的人不會出現在選單裡（他 9 點還在外面）。
         </p>
       </div>

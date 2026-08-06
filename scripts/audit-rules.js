@@ -35,8 +35,17 @@ const chromium = loadChromium();
    */
   await page.evaluate(() => {
     const S = window.App.State.get();
-    S.shoppingByDate = { '2026-08-07': ['261-3', '261-5'], '2026-08-11': ['263-4'] };
-    S.toiletByDate = { '2026-08-06': ['261-9'], '2026-08-07': ['263-2'], '2026-08-12': ['旅部-1'] };
+    S.shoppingByDate = { '2026-08-09': ['261-3', '261-5'], '2026-08-11': ['263-4'] };
+    /*
+     * 抬上車／抬上樓的固定分組還沒定案，但程式支援了就要驗到。
+     * 這裡把每個人都指定一組（分組是名冊屬性，不分日期），確認：
+     * 兩組不重疊、加起來剛好是當餐在場的人、而且真的照名冊的組別走。
+     */
+    const VEHICLE = new Set(['261-3', '261-6', '261-7', '261-8', '263-1', '263-2']);
+    S.members.forEach((m) => {
+      if (m.dutyExempt) return; // 愷宸不抬便當
+      m.carryGroup = VEHICLE.has(m.id) ? 'vehicle' : 'upstairs';
+    });
     for (let i = 1; i <= 14; i++) window.App.ScheduleEngine.commitDay('2026-08-' + String(i).padStart(2, '0'));
   });
 
@@ -63,7 +72,9 @@ const chromium = loadChromium();
        * （那天的規則可能跟現在不一樣），所以規則檢查跳過，只在下面另外對次數。
        */
       if ((S.overrides || {})[d]) { locked.push(d); return; }
-      const active = St.activeMembersOn(d);
+      // 只排掃廁所的人（愷宸）不算進出勤人數，班表任何欄位都不該出現他
+      const active = St.activeMembersOn(d).filter(x => !x.dutyExempt);
+      const exempt = St.activeMembersOn(d).filter(x => x.dutyExempt);
       const activeIds = set(active.map(m => m.id));
       const activeAt = (id, meal) => { const mm = St.memberById(id); return mm && St.isActiveOn(mm, d, meal); };
       const delivery = active.filter(m => m.fixedRole === 'delivery').map(m => m.id);
@@ -79,7 +90,8 @@ const chromium = loadChromium();
         fail(d, `採買名單不符：設定 ${names(wanted)}，班表 ${names(shoppers)}`);
       }
 
-      St.MEAL_KEYS.forEach(meal => {
+      const MEALS = St.mealsOn(d);
+      MEALS.forEach(meal => {
         const m = sc.meals[meal];
         const isOff = meal === 'breakfast' || meal === 'lunch';
         const absent = isOff ? shoppers.slice() : [];
@@ -118,17 +130,32 @@ const chromium = loadChromium();
         const deliveryThisMeal = delivery.filter(id => activeAt(id, meal));
         if (!eq(set(m.delivery || []), set(deliveryThisMeal))) fail(d, `${meal} 送便當名單不符`);
 
-        // 抬上車/上樓 = 在場 − 送便當（洗碗的人也要抬）
-        const expectCarry = set(present.filter(id => !deliveryThisMeal.includes(id)));
-        if (!eq(set(m.carryVehicle || []), expectCarry)) {
-          fail(d, `${meal} 抬上車名單不符：多/少 ${names([...expectCarry].filter(x => !(m.carryVehicle||[]).includes(x)))} / ${names((m.carryVehicle||[]).filter(x => !expectCarry.has(x)))}`);
+        // ── 抬便當三段（8/7 起的新流程）──
+        // 抬下車：當餐在場的人全部一起，含送便當的兩位
+        if (!eq(set(m.carryDown || []), set(present))) fail(d, `${meal} 抬下車應該是全員`);
+        if (m.carryGrouped) {
+          // 名冊指定分組之後，上車＋上樓要剛好把在場的人分完，而且不重疊
+          const veh = set(m.carryVehicle || []), up = set(m.carryUpstairs || []);
+          [...veh].forEach(id => { if (up.has(id)) fail(d, `${meal} ${nm(id)} 同時被排到抬上車與抬上樓`); });
+          const both = new Set([...veh, ...up]);
+          if (!eq(both, set(present))) fail(d, `${meal} 抬上車＋抬上樓沒有把在場的人分完`);
+          (m.carryVehicle || []).forEach(id => {
+            if ((St.memberById(id) || {}).carryGroup !== 'vehicle') fail(d, `${meal} ${nm(id)} 名冊不是抬上車組`);
+          });
+          (m.carryUpstairs || []).forEach(id => {
+            if ((St.memberById(id) || {}).carryGroup !== 'upstairs') fail(d, `${meal} ${nm(id)} 名冊不是抬上樓組`);
+          });
+        } else {
+          // 還沒指定分組：兩者都是「送便當的兩位以外全上」
+          const expectCarry = set(present.filter(id => !delivery.filter(x => activeAt(x, meal)).includes(id)));
+          if (!eq(set(m.carryVehicle || []), expectCarry)) fail(d, `${meal} 抬上車名單不符`);
+          if (!eq(set(m.carryUpstairs || []), expectCarry)) fail(d, `${meal} 抬上樓名單與抬上車不一致`);
         }
-        if (!eq(set(m.carryUpstairs || []), expectCarry)) fail(d, `${meal} 抬上樓名單與抬上車不一致`);
 
         // ── 打菜流程 ──
         const sv = m.serving || {};
         const svAll = ['rice','serveDish','lid','count','drinks','boxing'].flatMap(k => sv[k] || []);
-        // 每個在場的人剛好被排到一項
+        // 每個在場的人剛好被排到一項，不多不少
         const svDup = svAll.filter((x,i) => svAll.indexOf(x) !== i);
         if (svDup.length) fail(d, `${meal} 打菜流程重複排到：${names([...new Set(svDup)])}`);
         const svMissing = present.filter(id => !svAll.includes(id));
@@ -136,52 +163,62 @@ const chromium = loadChromium();
         svAll.forEach(id => {
           if (!present.includes(id)) fail(d, `${meal} 打菜流程排到不在場的 ${nm(id)}`);
         });
-        // 固定角色必須是名冊指定的人；早餐不打飯，rice 必須是空的且那兩位改成包餐盒
+
         const withRice = St.servesRiceAt(meal);
+        const holdersOf = role => present
+          .filter(id => (St.memberById(id) || {}).servingRole === role)
+          .sort((a, b) => ((St.memberById(a).servingRank || 1) - (St.memberById(b).servingRank || 1))
+            || St.rosterOrder(St.memberById(a), St.memberById(b)));
+
+        /*
+         * 固定角色的名額會隨人數縮（抬飲料 2→1），縮的時候一定是留 rank 小的那位，
+         * 沒被留下的併進打菜的輪替池。所以檢查的是「選到的是不是前 n 位」。
+         */
         ['rice','count','drinks'].forEach(role => {
-          const roleMembers = present.filter(id => (St.memberById(id)||{}).servingRole === role);
-          const expect = (role === 'rice' && !withRice) ? [] : roleMembers;
-          if (!eq(set(sv[role] || []), set(expect))) fail(d, `${meal} 打菜固定角色 ${role} 名單不符`);
-        });
-        const riceMembers = present.filter(id => (St.memberById(id)||{}).servingRole === 'rice');
-        if (!withRice) riceMembers.forEach(id => {
-          if (!(sv.boxing || []).includes(id)) fail(d, `${meal} 不打飯，${nm(id)} 應改成包餐盒`);
-        });
-        // 輪替的三項不能排到有固定角色的人
-        ['serveDish','lid','boxing'].forEach(role => {
-          (sv[role] || []).forEach(id => {
-            const mm = St.memberById(id);
-            if (mm && mm.servingRole && role !== 'boxing') fail(d, `${meal} ${nm(id)} 有固定角色卻被排到 ${role}`);
+          const holders = holdersOf(role);
+          const got = (sv[role] || []);
+          if (role === 'rice' && !withRice) {
+            if (got.length) fail(d, `${meal} 早餐不打飯，打飯那一行應該是空的`);
+            holders.forEach(id => {
+              if (!(sv.boxing || []).includes(id)) fail(d, `${meal} 不打飯，${nm(id)} 應改成包便當`);
+            });
+            return;
+          }
+          got.forEach(id => {
+            if ((St.memberById(id) || {}).servingRole !== role) fail(d, `${meal} ${nm(id)} 名冊不是 ${role}`);
           });
-        });
-        // ── 固定洗碗的招員：三餐都洗碗、打菜只做打菜、不做其他任何勤務 ──
-        const fixedWash = present.filter(id => (St.memberById(id)||{}).fixedDishwash);
-        fixedWash.forEach(id => {
-          if (!(m.dishwash||[]).includes(id)) fail(d, `${meal} 固定洗碗的 ${nm(id)} 沒有被排到洗碗`);
-          ['foodwaste','wipe','floor','cleanup'].forEach(k => {
-            if ((m[k]||[]).includes(id)) fail(d, `${meal} 固定洗碗的 ${nm(id)} 被排到 ${k}`);
+          const expect = holders.slice(0, got.length);
+          if (!eq(set(got), set(expect))) {
+            fail(d, `${meal} ${role} 只留 ${got.length} 位時應該留 ${names(expect)}，實際 ${names(got)}`);
+          }
+          // 沒被留下的要落在打菜的輪替裡，不能整個不見
+          holders.slice(got.length).forEach(id => {
+            if (!(sv.serveDish || []).includes(id) && !(sv.boxing || []).includes(id) && !(sv.lid || []).includes(id)) {
+              fail(d, `${meal} ${nm(id)} 沒被排到 ${role}，也沒有併進打菜／蓋便當／包便當`);
+            }
           });
-          if ((sv.lid||[]).includes(id)) fail(d, `${meal} 只做打菜的 ${nm(id)} 被排到蓋便當`);
         });
 
-        // 打菜人數：足夠時就是 2×菜數
+        // 打菜是硬性需求：2×菜數。湊不齊的時候班表會跳提醒，那時才允許少
         const dishes = m.dishes;
-        // 打菜/蓋便當的候選池 = 在場的人扣掉「名冊上有固定角色」的人（不打飯的那餐也一樣扣）
-        const fixedCount = present.filter(id => (St.memberById(id)||{}).servingRole).length;
-        const poolSize = present.length - fixedCount;
-        const wantDish = Math.min(dishes * 2, poolSize);
-        if ((sv.serveDish||[]).length !== wantDish) fail(d, `${meal} 打菜應 ${wantDish} 人，實際 ${(sv.serveDish||[]).length} 人`);
-        // 打菜名額夠的話，只做打菜的招員一定全部在裡面
-        if (wantDish >= fixedWash.length) {
-          fixedWash.forEach(id => {
-            if (!(sv.serveDish||[]).includes(id)) fail(d, `${meal} 只做打菜的 ${nm(id)} 沒有被排到打菜`);
-            if ((sv.boxing||[]).includes(id)) fail(d, `${meal} 只做打菜的 ${nm(id)} 被排到包餐盒`);
-          });
+        const shortWarn = (sc.warnings || []).some(w => w.indexOf('道菜只會有 1 個人') !== -1);
+        if (!shortWarn && (sv.serveDish || []).length !== dishes * 2) {
+          fail(d, `${meal} ${dishes} 道菜，打菜應 ${dishes * 2} 人，實際 ${(sv.serveDish || []).length} 人`);
         }
-        // 蓋便當：人夠就是2人，不夠就是0。候選池不含只做打菜的招員
-        const lidPool = poolSize - fixedWash.length;
-        const wantLid = lidPool >= Math.max(0, dishes*2 - fixedWash.length) + 2 ? 2 : 0;
-        if ((sv.lid||[]).length !== wantLid) fail(d, `${meal} 蓋便當應 ${wantLid} 人，實際 ${(sv.lid||[]).length} 人`);
+        // 蓋便當只有三種狀態：正常 2 位、由計數的兩位兼（這一行空著）、人力不足取消
+        const lidLen = (sv.lid || []).length;
+        if (m.countMergedIntoLid) {
+          if (lidLen) fail(d, `${meal} 計數的兩位兼蓋便當時，蓋便當不該另外列人`);
+        } else if (lidLen !== 0 && lidLen !== 2) {
+          fail(d, `${meal} 蓋便當應該是 2 位或 0 位，實際 ${lidLen} 位`);
+        }
+        // 輪替的三項不能排到「這一餐真的在擔任固定角色」的人
+        ['serveDish','lid'].forEach(role => {
+          (sv[role] || []).forEach(id => {
+            const onFixed = ['rice','count','drinks'].some(r => (sv[r] || []).includes(id));
+            if (onFixed) fail(d, `${meal} ${nm(id)} 已經有固定角色卻又被排到 ${role}`);
+          });
+        });
 
         // 送便當的兩位只能排晚餐撤收（早、中在外面跑便當）；那一餐洗碗的人也不能排
         if (meal !== 'dinner') {
@@ -195,7 +232,16 @@ const chromium = loadChromium();
       });
 
       // 撤收：每餐固定 早5／中7／晚7，同一天不會有人被排兩次
-      const cleanupAll = St.MEAL_KEYS.flatMap(meal => sc.meals[meal].cleanup || []);
+      // 只排掃廁所的人不能出現在任何一餐
+      exempt.forEach(x => MEALS.forEach(meal => {
+        const mm = sc.meals[meal];
+        const inAny = ['dishwash','foodwaste','wipe','floor','delivery','cleanup','carryDown','carryVehicle','carryUpstairs']
+          .some(k => (mm[k] || []).includes(x.id))
+          || Object.keys(mm.serving || {}).some(r => (mm.serving[r] || []).includes(x.id));
+        if (inAny) fail(d, `${nm(x.id)} 只排掃廁所，卻出現在 ${meal} 的班表裡`);
+      }));
+
+      const cleanupAll = MEALS.flatMap(meal => sc.meals[meal].cleanup || []);
       const dup = cleanupAll.filter((x, i) => cleanupAll.indexOf(x) !== i);
       if (dup.length) fail(d, `撤收同一天重複排到：${names([...new Set(dup)])}`);
 
@@ -231,7 +277,7 @@ const chromium = loadChromium();
        * （例如 8/3 是 18 人 18 個名額），限制一交錯就湊不出完美配對，這是數學上的必然。
        */
       let shortTotal = 0;
-      St.MEAL_KEYS.forEach(meal => {
+      MEALS.forEach(meal => {
         const got = (sc.meals[meal].cleanup || []).length;
         const cap = capacityOf(meal);
         if (got > desired[meal]) fail(d, `${meal} 撤收 ${got} 人，超過預定的 ${desired[meal]} 人`);
@@ -239,14 +285,14 @@ const chromium = loadChromium();
         shortTotal += Math.max(0, desired[meal] - got);
       });
       if (shortTotal) {
-        const total = St.MEAL_KEYS.reduce((a, meal) => a + desired[meal], 0);
+        const total = MEALS.reduce((a, meal) => a + desired[meal], 0);
         notes.push(`${d} 撤收名額 ${total} 個、排得動的 ${cleanupPool.length} 人，少坐了 ${shortTotal} 個`
-          + `（早${sc.meals.breakfast.cleanup.length}／中${sc.meals.lunch.cleanup.length}／晚${sc.meals.dinner.cleanup.length}）`);
+          + `（${MEALS.map(mm => `${St.MEAL_LABELS[mm]}${sc.meals[mm].cleanup.length}`).join('／')}）`);
       }
 
       // ── 換水：只有早餐、固定 5 人、不排招員、不跟早餐撤收重複 ──
       const water = sc.daily.water || [];
-      St.MEAL_KEYS.forEach(meal => {
+      MEALS.forEach(meal => {
         if ((sc.meals[meal].water || []).length) fail(d, `換水不該出現在 ${meal} 的勤務欄位（應該在全日）`);
       });
       const waterCap = active.filter(x => !x.skipWater && St.isActiveOn(x, d, 'breakfast')
@@ -277,7 +323,7 @@ const chromium = loadChromium();
         if (isShopper(id)) fail(d, `${nm(id)} 這天去採買，9 點不在營區卻被排到掃廁所`);
         if (!activeAt(id, 'breakfast')) fail(d, `掃廁所排到早上不在的 ${nm(id)}`);
       });
-      St.MEAL_KEYS.forEach(meal => {
+      MEALS.forEach(meal => {
         if ((sc.meals[meal].toilet || []).length) fail(d, `掃廁所不該出現在 ${meal} 的勤務欄位（應該在全日）`);
       });
 
@@ -287,7 +333,7 @@ const chromium = loadChromium();
        */
       shoppers.forEach(id => {
         if ((sc.daily.water || []).includes(id)) fail(d, `採買的 ${nm(id)} 不該被排到換水`);
-        ['breakfast', 'lunch'].forEach(meal => {
+        ['breakfast', 'lunch'].filter(mm => MEALS.indexOf(mm) !== -1).forEach(meal => {
           const m = sc.meals[meal];
           ['dishwash','foodwaste','wipe','floor','delivery','cleanup','carryVehicle'].forEach(k => {
             if ((m[k] || []).includes(id)) fail(d, `${meal} 採買的 ${nm(id)} 不該被排到 ${k}`);
@@ -303,12 +349,14 @@ const chromium = loadChromium();
         if ((sc.daily.laundryUp||[]).includes(x.id) || (sc.daily.laundryDown||[]).includes(x.id))
           fail(d, `${nm(x.id)} 設定免排洗衣籃卻被排到`);
       });
-      S.members.filter(x => x.skipDinnerCleanup).forEach(x => {
-        if ((sc.meals.dinner.cleanup||[]).includes(x.id)) fail(d, `${nm(x.id)} 設定免排晚上撤收卻被排到`);
-      });
+      if (sc.meals.dinner) {
+        S.members.filter(x => x.skipDinnerCleanup).forEach(x => {
+          if ((sc.meals.dinner.cleanup||[]).includes(x.id)) fail(d, `${nm(x.id)} 設定免排晚上撤收卻被排到`);
+        });
+      }
       // 退出打飯班的人，當天早上起完全不能出現
       S.members.filter(x => x.dischargeDate === d && x.leaveMode === 'immediate').forEach(x => {
-        St.MEAL_KEYS.forEach(meal => {
+        MEALS.forEach(meal => {
           ['dishwash','foodwaste','wipe','floor','delivery','carryVehicle','cleanup'].forEach(k => {
             if ((sc.meals[meal][k]||[]).includes(x.id)) fail(d, `${nm(x.id)} 已退出打飯班卻被排到 ${meal} ${k}`);
             const sv2 = sc.meals[meal].serving || {};
@@ -319,7 +367,8 @@ const chromium = loadChromium();
       });
       // 退伍當天：早/中要能排，晚上不能出現
       S.members.filter(x => x.dischargeDate === d && x.leaveMode !== 'immediate').forEach(x => {
-        ['dishwash','foodwaste','wipe','floor','delivery','carryVehicle','cleanup'].forEach(k => {
+        // 8/14 只吃早餐，那天沒有晚餐可以檢查
+        if (sc.meals.dinner) ['dishwash','foodwaste','wipe','floor','delivery','carryVehicle','cleanup'].forEach(k => {
           if ((sc.meals.dinner[k]||[]).includes(x.id)) fail(d, `${nm(x.id)} 退伍當天晚上已離營卻被排到 ${k}`);
         });
         if ((sc.daily.laundryUp||[]).includes(x.id) || (sc.daily.laundryDown||[]).includes(x.id))
@@ -327,7 +376,7 @@ const chromium = loadChromium();
       });
       // 還沒加入的人不能出現
       S.members.filter(x => x.joinDate && d < x.joinDate).forEach(x => {
-        St.MEAL_KEYS.forEach(meal => {
+        MEALS.forEach(meal => {
           ['dishwash','foodwaste','wipe','floor','delivery','carryVehicle','cleanup'].forEach(k => {
             if ((sc.meals[meal][k]||[]).includes(x.id)) fail(d, `${nm(x.id)} 還沒報到（${x.joinDate}）卻被排到 ${meal} ${k}`);
           });
@@ -349,13 +398,26 @@ const chromium = loadChromium();
 
       // 個人分工文字要跟班表資料一致
       active.forEach(mem => {
-        St.MEAL_KEYS.forEach(meal => {
+        MEALS.forEach(meal => {
           const m = sc.meals[meal];
           const labels = DV.mealDutyLabels(m, mem.id);
           if (!activeAt(mem.id, meal)) return;  // 已離營，個人分工顯示「已離營」
-          const shouldCarry = (m.carryVehicle || []).includes(mem.id);
-          const hasCarry = labels.includes('抬上車/上樓');
-          if (shouldCarry !== hasCarry) fail(d, `${meal} ${nm(mem.id)} 個人分工的抬上車/上樓 與班表不一致（班表:${shouldCarry} 文字:${hasCarry}）`);
+          /*
+         * 抬便當：分組指定好之前，個人分工寫的是合併的「抬上車/上樓」；
+         * 指定好之後要分清楚他是哪一組，不然看不出來要去哪。
+         */
+          if (m.carryGrouped) {
+            [['carryVehicle', '抬上車'], ['carryUpstairs', '抬上樓']].forEach(([key, label]) => {
+              const should = (m[key] || []).includes(mem.id);
+              if (should !== labels.includes(label)) {
+                fail(d, `${meal} ${nm(mem.id)} 個人分工的${label} 與班表不一致（班表:${should} 文字:${labels.includes(label)}）`);
+              }
+            });
+          } else {
+            const shouldCarry = (m.carryVehicle || []).includes(mem.id);
+            const hasCarry = labels.includes('抬上車/上樓');
+            if (shouldCarry !== hasCarry) fail(d, `${meal} ${nm(mem.id)} 個人分工的抬上車/上樓 與班表不一致（班表:${shouldCarry} 文字:${hasCarry}）`);
+          }
           const shouldClean = (m.cleanup || []).includes(mem.id);
           if (shouldClean !== labels.includes('撤收')) fail(d, `${meal} ${nm(mem.id)} 個人分工的撤收 不一致`);
           // 打菜流程的個人分工：在場的人一定要有一個打菜角色，而且要對得上班表

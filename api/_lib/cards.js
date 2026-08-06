@@ -1,17 +1,16 @@
 /*
- * 把一天的班表組成 LINE Flex Message 的 10 張卡片（可左右滑動）。
+ * 把一天的班表組成 LINE Flex Message 的一組卡片（可左右滑動）。
  *
  * 順序（使用者指定）：
- *   1 早餐勤務   2 中餐勤務   3 晚餐勤務
- *   4 261梯 01-08 個人分工
- *   5 263梯 01-05 個人分工
- *   6 263梯 06-10 個人分工
- *   7 招員（261梯 09-13）個人分工
- *   8 旅部連 個人分工
- *   9 全日勤務
- *   10 公平性總覽（圖片 ＋「看完整」按鈕）
+ *   早餐 → 中餐 → 晚餐 各一張（那天沒有的餐就不發，例如 8/14 只吃早餐）
+ *   261梯 01-08 ／ 263梯 01-05 ／ 263梯 06-10 ／ 招員（261梯 09-13）／ 旅部連
+ *     個人分工各一張（那一組沒有人就不發）
+ *   全日勤務一張
+ *   公平性總覽一張（圖片 ＋「看完整」按鈕）
  *
- * 卡片內容跟網頁「文字班表」分頁是同一份資料（js/textFormat.js），不會兩邊長歪。
+ * 每一餐的卡片照現場動線分段：前置 → 打菜 → 抬便當 → 善後勤務 → 撤收。
+ * 分段的定義與內容跟網頁「文字班表」同源（js/state.js 的 MEAL_SECTIONS
+ * ＋ js/textFormat.js 的 mealRows），不會兩邊長歪。
  */
 
 const INK = "#4a3f35";
@@ -88,11 +87,13 @@ function mealBubble(App, dateStr, schedule, mealKey, names) {
   const TF = App.TextFormat;
   const color = CARD_COLORS[mealKey];
   const block = TF.mealRows(dateStr, schedule, mealKey, names);
-  const contents = [sectionTag("打菜", color)];
-  block.serving.forEach((row, i) => contents.push(dutyRow(i + 1, row.label, row.value, TF.step)));
-  contents.push({ type: "separator", margin: "xl", color: "#f0e4d8" });
-  contents.push(sectionTag("勤務", color));
-  block.duties.forEach((row, i) => contents.push(dutyRow(i + 1, row.label, row.value, TF.step)));
+  const contents = [];
+  block.sections.forEach((section, si) => {
+    if (si > 0) contents.push({ type: "separator", margin: "xl", color: "#f0e4d8" });
+    contents.push(sectionTag(section.title + (section.hint ? `（${section.hint}）` : ""), color));
+    section.notes.forEach((note) => contents.push(text(`・${note}`, { size: "xs", color: MUTED, margin: "md" })));
+    section.rows.forEach((row, i) => contents.push(dutyRow(i + 1, row.label, row.value, TF.step)));
+  });
 
   return {
     type: "bubble",
@@ -261,8 +262,19 @@ function buildCarousel(App, dateStr, schedule, options) {
   const opts = options || {};
   const names = App.TextFormat.displayNameMap();
 
-  const bubbles = App.State.MEAL_KEYS.map((mealKey) => mealBubble(App, dateStr, schedule, mealKey, names));
-  PERSON_CARDS.forEach((card) => bubbles.push(personBubble(App, dateStr, schedule, names, card)));
+  const bubbles = App.TextFormat.mealKeysOf(dateStr, schedule).map((mealKey) =>
+    mealBubble(App, dateStr, schedule, mealKey, names)
+  );
+  /*
+   * 沒有人的那一組就不發卡片（旅部連 8/7 起調走了）。
+   * 空卡片只是讓人多滑一次，還會以為是不是漏掉誰。
+   */
+  PERSON_CARDS.forEach((card) => {
+    const has = App.State.activeMembersOn(dateStr).some(
+      (m) => m.cohort === card.cohort && m.seq >= card.from && m.seq <= card.to
+    );
+    if (has) bubbles.push(personBubble(App, dateStr, schedule, names, card));
+  });
   bubbles.push(dailyBubble(App, dateStr, schedule, names));
   if (opts.imageUrl && opts.fullUrl) {
     bubbles.push(fairnessBubble(App, dateStr, opts.cells || [], opts.imageUrl, opts.fullUrl));

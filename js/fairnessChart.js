@@ -42,6 +42,8 @@ window.App = window.App || {};
    * 打菜、蓋便當、包餐盒只在「沒有打菜固定角色」的人之間輪。
    */
   function eligibleFor(dutyKey, members) {
+    // 只排掃廁所的人（愷宸）不做任何勤務，每張圖都不該把他算進去
+    members = members.filter((m) => !m.dutyExempt);
     if (dutyKey === "delivery") return members.filter((m) => m.fixedRole === "delivery");
     /*
      * 洗碗分兩群人，混在同一張圖裡看不出東西：

@@ -49,38 +49,53 @@ window.App = window.App || {};
     return ids.map((id) => names[id] || id).join("、");
   }
 
+  /**
+   * 那一天實際有哪幾餐。8/14 任務下午前結束、只吃早餐，所以不能寫死三餐。
+   * 以班表裡真的有的那幾餐為準，鎖定的舊班表（三餐都有）也還是讀得出來。
+   */
+  function mealKeysOf(dateStr, schedule) {
+    const S = window.App.State;
+    return S.MEAL_KEYS.filter((m) => (schedule.meals || {})[m] && S.mealIsOn(dateStr, m));
+  }
+
   /** 名冊順序：261 → 263 → 旅部連，同梯依序號 */
   function sortedMembers(members) {
     return members.slice().sort(window.App.State.rosterOrder);
   }
 
   /**
-   * 某一餐的內容，分成「打菜」與「勤務」兩段。
-   * @returns {{heading:string, menu:string, serving:{label,value}[], duties:{label,value}[]}}
+   * 某一餐的內容，照實際流程分成幾段（前置／打菜／抬便當／善後／撤收）。
+   * @returns {{heading:string, menu:string, sections:{title,hint,notes,rows:{label,value}[]}[]}}
    */
   function mealRows(dateStr, schedule, mealKey, names) {
     const S = window.App.State;
     const DV = window.App.DutyView;
     const mealData = schedule.meals[mealKey];
     const dishes = mealData.dishes != null ? mealData.dishes : S.menuSizeFor(dateStr, mealKey);
+    const serving = (mealData && mealData.serving) || {};
 
-    const serving = [];
-    S.SERVING_ROWS.forEach((rowKey) => {
-      const ids = DV.servingRowIds(mealData, rowKey);
-      // 沒人的行就不用佔位（早餐沒有打飯；人不夠時沒有蓋便當）
-      if (!ids.length && ["rice", "lid", "boxing"].indexOf(rowKey) !== -1) return;
-      serving.push({ label: S.DUTY_LABELS[rowKey], value: joinNames(ids, names) });
-    });
+    const sections = S.MEAL_SECTIONS.map((section) => {
+      const rows = [];
+      (section.rows || []).forEach((rowKey) => {
+        if (S.SERVING_ROWS.indexOf(rowKey) !== -1) {
+          const ids = serving[rowKey] || [];
+          // 沒人的行就不用佔位（早餐沒有打飯；人不夠時沒有蓋便當、沒有包便當）
+          if (!ids.length) return;
+          let label = S.DUTY_LABELS[rowKey];
+          // 人少的時候計數的兩位順手蓋便當，沒有獨立的蓋便當那一行，要在標題講清楚
+          if (rowKey === "count" && mealData.countMergedIntoLid) label += "（兼蓋便當）";
+          rows.push({ label, value: joinNames(ids, names) });
+          return;
+        }
+        const description = DV.mealRowDescription(rowKey, mealData);
+        const ids = DV.mealRowIds(mealData, rowKey);
+        if (!description && !ids.length) return; // 例如送便當的兩位都退伍了
+        rows.push({ label: S.DUTY_LABELS[rowKey], value: description || joinNames(ids, names) });
+      });
+      return { title: section.title, hint: section.hint || "", notes: (section.notes || []).slice(), rows };
+    }).filter((section) => section.rows.length || section.notes.length);
 
-    const duties = S.MEAL_DUTY_ROWS.map((rowKey) => {
-      const description = DV.mealRowDescription(rowKey);
-      return {
-        label: S.DUTY_LABELS[rowKey],
-        value: description || joinNames(DV.mealRowIds(mealData, rowKey), names),
-      };
-    });
-
-    return { heading: S.MEAL_LABELS[mealKey], menu: S.menuLabel(mealKey, dishes), serving, duties };
+    return { heading: S.MEAL_LABELS[mealKey], menu: S.menuLabel(mealKey, dishes), sections };
   }
 
   /** 全日勤務（採買、洗衣籃）；沒有的話回空陣列 */
@@ -108,7 +123,21 @@ window.App = window.App || {};
     const S = window.App.State;
     const DV = window.App.DutyView;
 
-    const meals = S.MEAL_KEYS.map((mealKey) => {
+    /*
+     * 只排掃廁所的人（愷宸）不做任何勤務，三餐都印「無」只是洗版，
+     * 直接一句話帶過，底下的 extra 會列出掃廁所。
+     */
+    if (member.dutyExempt) {
+      return {
+        id: member.id,
+        seqLabel: `${member.cohort}-${member.seq}`,
+        name: names[member.id] || member.name,
+        meals: [{ head: "全日", note: "只排掃廁所，不排三餐勤務" }],
+        extra: DV.dailyDutyLabels(schedule.daily, member.id).slice(),
+      };
+    }
+
+    const meals = mealKeysOf(dateStr, schedule).map((mealKey) => {
       const mealData = schedule.meals[mealKey];
       const head = S.MEAL_LABELS[mealKey].slice(0, 1);
       // 已離營或去採買的人，那一餐一句話帶過
@@ -156,12 +185,14 @@ window.App = window.App || {};
     const S = window.App.State;
     const lines = [`${formatDateHeader(dateStr)} 勤務班表`];
 
-    S.MEAL_KEYS.forEach((mealKey) => {
+    mealKeysOf(dateStr, schedule).forEach((mealKey) => {
       const block = mealRows(dateStr, schedule, mealKey, names);
-      lines.push("", DIVIDER, `【${block.heading}】${block.menu}`, "", "〔打菜〕");
-      block.serving.forEach((row, i) => lines.push(`${step(i + 1)} ${row.label}：${row.value}`));
-      lines.push("", "〔勤務〕");
-      block.duties.forEach((row, i) => lines.push(`${step(i + 1)} ${row.label}：${row.value}`));
+      lines.push("", DIVIDER, `【${block.heading}】${block.menu}`);
+      block.sections.forEach((section) => {
+        lines.push("", `〔${section.title}〕${section.hint ? `（${section.hint}）` : ""}`);
+        section.notes.forEach((note) => lines.push(`・${note}`));
+        section.rows.forEach((row, i) => lines.push(`${step(i + 1)} ${row.label}：${row.value}`));
+      });
     });
 
     const daily = dailyRows(dateStr, schedule, names);
@@ -208,6 +239,7 @@ window.App = window.App || {};
     displayNameMap,
     formatDateHeader,
     shoppingNote,
+    mealKeysOf,
     joinNames,
     sortedMembers,
     mealRows,

@@ -94,9 +94,15 @@ window.App = window.App || {};
    */
   function computeDay(dateStr, snapshot) {
     const St = window.App.State;
-    // 當天「有出現過」的人。退伍當天的人也算在內，因為他早餐、中餐還在。
-    const dayMembers = snapshot.members.filter((m) => St.isActiveOn(m, dateStr));
+    /*
+     * 當天「有出現過」的人。退伍當天的人也算在內，因為他早餐、中餐還在。
+     * 勾了「只排掃廁所」的人（愷宸）整個排除——他不做任何勤務，
+     * 也不能算進出勤人數，不然勤務人數對照表、洗碗佇列、撤收名額全部會多算一個人。
+     */
+    const dayMembers = snapshot.members.filter((m) => St.isActiveOn(m, dateStr) && !m.dutyExempt);
     const warnings = [];
+    // 這天有哪幾餐（8/14 任務下午前結束，只吃早餐）
+    const mealsToday = St.mealsOn(dateStr);
 
     /*
      * 採買沒有固定星期、也沒有固定人數，是逐日指定的名單，一天可以派好幾個人。
@@ -128,7 +134,7 @@ window.App = window.App || {};
     const presentByMeal = {};
     const sizeByMeal = {};
     let sizeError = null;
-    MEAL_KEYS.forEach((meal) => {
+    mealsToday.forEach((meal) => {
       const present = dayMembers.filter((m) => availableForMeal(m.id, meal));
       presentByMeal[meal] = present;
       /*
@@ -168,13 +174,14 @@ window.App = window.App || {};
     }
 
     const dishwashCounts = {};
-    MEAL_KEYS.forEach((meal) => (dishwashCounts[meal] = sizeByMeal[meal].dishwash));
+    mealsToday.forEach((meal) => (dishwashCounts[meal] = sizeByMeal[meal].dishwash));
 
     const washDay = window.App.WashSchedule.computeWashDay(
       snapshot.washState,
       dayMembers,
       dishwashCounts,
-      availableForMeal
+      availableForMeal,
+      mealsToday
     );
     (washDay.warnings || []).forEach((w) => warnings.push(w));
 
@@ -183,7 +190,8 @@ window.App = window.App || {};
       dayMembers,
       snapshot.dutyCounts,
       availableForMeal,
-      washDay.assignments
+      washDay.assignments,
+      mealsToday
     );
     (cleanupDay.warnings || []).forEach((w) => warnings.push(w));
 
@@ -206,7 +214,7 @@ window.App = window.App || {};
       if (countsThisDay) incrementCounts(newDutyCounts, ids, key);
     };
     const meals = {};
-    MEAL_KEYS.forEach((meal) => {
+    mealsToday.forEach((meal) => {
       const dishwashIds = washDay.assignments[meal] || [];
       const present = presentByMeal[meal];
       // 送便當也要看那一餐在不在（退伍當天晚上就不算他了）
@@ -215,8 +223,31 @@ window.App = window.App || {};
       const otherPool = present.filter((m) => !excludeIds.has(m.id));
       const otherAssign = window.App.OtherDuties.assignOtherDuties(otherPool, newDutyCounts, sizeByMeal[meal]);
 
-      // 抬便當上車、上樓：除了固定送便當的兩位以外，當餐在場的人全部一起（洗碗的人也要）
-      const carryIds = present.filter((m) => !deliveryIds.includes(m.id)).map((m) => m.id);
+      /*
+       * 抬便當分三段（使用者更新的流程）：
+       *   抬下車  隨時到、隨時搬，當餐在場的人全部一起（含送便當的兩位）
+       *   抬上車  固定一組人（名冊上勾「抬上車」）
+       *   抬上樓  固定另一組人（名冊上勾「抬上樓」）
+       * 分組還沒指定的話，上車／上樓就先照舊「除了送便當的兩位，其餘全員」，
+       * 這樣名單填好之前班表照樣印得出來。
+       */
+      const carryDownIds = present.map((m) => m.id);
+      const grouped = present.some((m) => m.carryGroup);
+      const carryVehicleIds = grouped
+        ? present.filter((m) => m.carryGroup === "vehicle").map((m) => m.id)
+        : present.filter((m) => !deliveryIds.includes(m.id)).map((m) => m.id);
+      const carryUpstairsIds = grouped
+        ? present.filter((m) => m.carryGroup === "upstairs").map((m) => m.id)
+        : present.filter((m) => !deliveryIds.includes(m.id)).map((m) => m.id);
+      if (grouped) {
+        const unassigned = present.filter((m) => !m.carryGroup);
+        if (unassigned.length) {
+          warnings.push(
+            `${St.MEAL_LABELS[meal]}：${unassigned.map((m) => m.name).join("、")} 還沒指定抬上車／抬上樓，` +
+              `請到「名冊」補上。`
+          );
+        }
+      }
 
       /*
        * 對照表的每一列加上送便當兩位應該剛好等於出勤人數。對不起來的時候不會有人
@@ -244,10 +275,13 @@ window.App = window.App || {};
       meals[meal] = {
         serving: serving.assignments,
         dishes: serving.dishes,
+        countMergedIntoLid: serving.countMergedIntoLid,
         dishwash: dishwashIds,
         foodwaste: otherAssign.foodwaste,
-        carryVehicle: carryIds.slice(),
-        carryUpstairs: carryIds.slice(),
+        carryDown: carryDownIds,
+        carryGrouped: grouped,
+        carryVehicle: carryVehicleIds,
+        carryUpstairs: carryUpstairsIds,
         floor: otherAssign.floor,
         wipe: otherAssign.wipe,
         delivery: deliveryIds,

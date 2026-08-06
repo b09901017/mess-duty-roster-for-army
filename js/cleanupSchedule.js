@@ -2,7 +2,6 @@
  * 撤收排班。
  *
  * 規則（使用者指定）：
- *   - 名冊勾「固定洗碗」的招員完全不排撤收（他們三餐都在洗碗）。
  *   - 每餐人數照人數階梯：18 人以上 早4／中7／晚7，之後 4/7/6 → 4/6/6 → 4/5/6 …
  *     **不是**每個人每天都要輪到一次。
  *   - 誰先排：這項勤務累計做最少的人優先，同次數照名冊號碼。
@@ -41,9 +40,9 @@ window.App = window.App || {};
   /*
    * 撤收人數階梯（使用者指定）：[能排撤收的人數, 早, 中, 晚]。
    *
-   * 招員三餐固定洗碗、完全不排撤收之後，能排撤收的只剩十幾個人，
-   * 撐不起原本的 早5／中7／晚7（19 個名額）。所以改成按「今天有幾個人排得動」
-   * 一階一階往下降，名額才坐得滿——排不滿的班表看起來像出錯，其實只是人不夠。
+   * 旅部連調走之後只剩 19 人，撐不起原本的 早5／中7／晚7（19 個名額、19 個人，
+   * 一點餘裕都沒有）。所以改成按「今天有幾個人排得動」一階一階往下降，
+   * 名額才坐得滿——排不滿的班表看起來像出錯，其實只是人不夠。
    *
    * 使用者給的是前四階（477 → 476 → 466 → 456）；再往下照同樣的做法繼續，
    * 先減晚餐再減中餐，早餐維持最輕鬆。
@@ -66,7 +65,7 @@ window.App = window.App || {};
 
   /*
    * 誰要排撤收：全員，包含固定送便當的兩位（他們早、中要跑便當，只有晚上排得了，
-   * 見 canDoCleanup）。**但不含固定洗碗的招員**——他們三餐都在洗碗，不排撤收。
+   * 見 canDo）。名冊勾「固定洗碗」的人不排——目前沒有人勾，這條是留給那個做法的。
    */
   function cleanupEligible(members) {
     return members.filter((m) => !m.fixedDishwash);
@@ -110,10 +109,12 @@ window.App = window.App || {};
    * @param {{breakfast:string[],lunch:string[],dinner:string[]}} dishwashByMeal - 各餐洗碗名單
    * @returns {{assignments: object, sizes: object, desiredSizes: object, warnings: string[]}}
    */
-  function computeCleanupDay(dayMembers, dutyCounts, isAvailable, dishwashByMeal) {
+  function computeCleanupDay(dayMembers, dutyCounts, isAvailable, dishwashByMeal, mealsToday) {
     const available = isAvailable || (() => true);
+    // 8/14 只吃早餐，那天就只有早餐要撤收
+    const MEALS = (mealsToday && mealsToday.length ? mealsToday : MEAL_KEYS).slice();
     const washing = {};
-    MEAL_KEYS.forEach((meal) => {
+    MEALS.forEach((meal) => {
       washing[meal] = new Set(((dishwashByMeal || {})[meal] || []).slice());
     });
 
@@ -136,7 +137,7 @@ window.App = window.App || {};
 
     const source = 0;
     const mealNode = (j) => 1 + pool.length + j;
-    const sink = 1 + pool.length + MEAL_KEYS.length;
+    const sink = 1 + pool.length + MEALS.length;
 
     /*
      * 每個人最多被排一次（同一天不會又早又晚），成本＝撤收總次數為主、
@@ -146,7 +147,7 @@ window.App = window.App || {};
       const net = createNetwork(sink + 1);
       pool.forEach((member, i) => {
         net.addEdge(source, 1 + i, 1, 0);
-        MEAL_KEYS.forEach((meal, j) => {
+        MEALS.forEach((meal, j) => {
           if (!canDo(member, meal)) return;
           const cost =
             countOf(dutyCounts, member.id, "cleanup") * TOTAL_WEIGHT +
@@ -155,34 +156,67 @@ window.App = window.App || {};
           net.addEdge(1 + i, mealNode(j), 1, cost);
         });
       });
-      MEAL_KEYS.forEach((meal, j) => {
-        for (let k = 0; k < caps[meal]; k++) net.addEdge(mealNode(j), sink, 1, 0);
+      MEALS.forEach((meal, j) => {
+        for (let k = 0; k < (caps[meal] || 0); k++) net.addEdge(mealNode(j), sink, 1, 0);
       });
       return net;
     }
 
     /*
-     * 名額階梯是按「今天有幾個人排得動」查的，但光數人頭會高估：
-     * 退伍當天的人只剩早、中排得動，送便當的只有晚上排得動，那一餐洗碗的又不能排。
-     * 所以先放開名額跑一次流量，問出「今天最多真的排得出幾個人次」，再拿那個數字查階梯。
-     * 少了這一步，8/13、8/14 會被要求 16、15 個名額卻只湊得出 15、14 個，
-     * 每天都跳一個其實不是錯的「沒坐滿」警告。
+     * 名額先查階梯（按今天有幾個人排得動），再被「實際排得動幾個」壓下來。
+     *
+     * 光數人頭會高估：退伍當天的人只剩早、中排得動，送便當的只有晚上排得動，
+     * 那一餐洗碗的又不能排。少了這一步，班表每天都會跳一個其實不是錯的「沒坐滿」。
+     *
+     * 階梯本身是「三餐一起」的分法，所以只有一餐的日子（8/14 只吃早餐）要取
+     * 那一餐該有的數字，不能拿一餐的容量回去查三餐的階梯——那樣早餐會從 4 掉到 2。
      */
-    const openCaps = { breakfast: pool.length, lunch: pool.length, dinner: pool.length };
-    const capacity = minCostMaxFlow(buildNet(openCaps), source, sink);
-    const desiredSizes = cleanupSizes(Math.min(pool.length, capacity));
-    const totalNeed = desiredSizes.breakfast + desiredSizes.lunch + desiredSizes.dinner;
+    const full = cleanupSizes(pool.length);
+    const desiredSizes = { breakfast: 0, lunch: 0, dinner: 0 };
+    MEALS.forEach((meal) => {
+      const capThisMeal = pool.filter((m) => canDo(m, meal)).length;
+      desiredSizes[meal] = Math.min(full[meal], capThisMeal);
+    });
 
-    // 每一餐的名額是固定的，不多不少
-    const net = buildNet(desiredSizes);
-    const assigned = minCostMaxFlow(net, source, sink);
+    const openCaps = {};
+    MEALS.forEach((meal) => (openCaps[meal] = pool.length));
+    const capacity = minCostMaxFlow(buildNet(openCaps), source, sink);
+    let totalNeed = MEALS.reduce((sum, meal) => sum + desiredSizes[meal], 0);
+
+    /*
+     * 每一餐的名額固定，不多不少。名額總數超過「整天排得出幾個人次」時，
+     * 或是總量夠、但這個分法湊不出完美配對時（限制一交錯就會這樣），
+     * 就從名額最多的那一餐扣一個重試，直到坐得滿——早餐永遠是最輕鬆的那一餐，
+     * 所以扣的順序自然會避開它。
+     */
+    const shrink = () => {
+      let worst = null;
+      MEALS.forEach((meal) => {
+        if (desiredSizes[meal] > 0 && (!worst || desiredSizes[meal] > desiredSizes[worst])) worst = meal;
+      });
+      if (!worst) return false;
+      desiredSizes[worst] -= 1;
+      totalNeed -= 1;
+      return true;
+    };
+    while (totalNeed > capacity && shrink()) {
+      /* 先壓到總容量以內 */
+    }
+    let net = buildNet(desiredSizes);
+    let assigned = minCostMaxFlow(net, source, sink);
+    let retries = 0;
+    while (assigned < totalNeed && retries < MEALS.length * 3 && shrink()) {
+      retries += 1;
+      net = buildNet(desiredSizes);
+      assigned = minCostMaxFlow(net, source, sink);
+    }
 
     pool.forEach((member, i) => {
       net.graph[1 + i].forEach((ei) => {
         const edge = net.edges[ei];
         if (edge.capacity > 0 && edge.flow > 0) {
           const j = edge.to - (1 + pool.length);
-          assignments[MEAL_KEYS[j]].push(member.id);
+          if (MEALS[j]) assignments[MEALS[j]].push(member.id);
         }
       });
     });
@@ -190,7 +224,7 @@ window.App = window.App || {};
     // 每一餐內部照名冊順序排，看起來才整齊
     const orderOf = {};
     pool.forEach((m, i) => (orderOf[m.id] = i));
-    MEAL_KEYS.forEach((meal) => assignments[meal].sort((a, b) => orderOf[a] - orderOf[b]));
+    MEALS.forEach((meal) => assignments[meal].sort((a, b) => orderOf[a] - orderOf[b]));
 
     const sizes = {
       breakfast: assignments.breakfast.length,
@@ -200,7 +234,7 @@ window.App = window.App || {};
 
     if (assigned < totalNeed) {
       // 名額沒坐滿，講清楚是哪一條限制卡住的
-      const shortMeals = MEAL_KEYS.filter((meal) => sizes[meal] < desiredSizes[meal]).map(
+      const shortMeals = MEALS.filter((meal) => sizes[meal] < desiredSizes[meal]).map(
         (meal) => `${window.App.State.MEAL_LABELS[meal]} ${sizes[meal]}/${desiredSizes[meal]}`
       );
       const skipDinner = pool.filter((m) => m.skipDinnerCleanup && available(m.id, "dinner")).length;

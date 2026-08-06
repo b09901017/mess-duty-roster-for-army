@@ -45,7 +45,7 @@ window.App = window.App || {};
    * @param {(memberId: string, meal: string) => boolean} [isAvailable]
    * @returns {{assignments: object, newWashState: object, queueLength: number, warnings: string[]}}
    */
-  function computeWashDay(washState, dayMembers, perMealCounts, isAvailable) {
+  function computeWashDay(washState, dayMembers, perMealCounts, isAvailable, mealsToday) {
     const St = window.App.State;
     const available = isAvailable || (() => true);
     const fixed = fixedWashers(dayMembers);
@@ -64,7 +64,8 @@ window.App = window.App || {};
       if (idx >= 0) cursor = idx;
     }
 
-    MEAL_KEYS.forEach((meal) => {
+    const MEALS = (mealsToday && mealsToday.length ? mealsToday : MEAL_KEYS).slice();
+    MEALS.forEach((meal) => {
       const need = Math.max(0, (perMealCounts && perMealCounts[meal]) || 0);
 
       // 固定洗碗的人先進去（那一餐在場的才算），剩下的名額才由大家輪

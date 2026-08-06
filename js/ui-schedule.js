@@ -33,25 +33,54 @@ window.App.UI = window.App.UI || {};
     return dutyLineText(duty, namesOrDash(ids));
   }
 
-  function mealCard(mealKey, mealData) {
+  /*
+   * 一餐照實際流程分段印：前置 → 打菜 → 抬便當 → 善後 → 撤收。
+   * 分段的定義跟文字班表、LINE 卡片共用（js/textFormat.js 的 mealRows），三邊不會長歪。
+   * 名字用「261-13 簡宏穎」的完整寫法，並包成 name-token 避免手機把編號跟名字拆兩行。
+   */
+  function labelNameMap() {
+    const map = {};
+    window.App.State.get().members.forEach((m) => (map[m.id] = `${m.cohort}-${m.seq} ${m.name}`));
+    return map;
+  }
+
+  function wrapNames(value) {
+    if (value.indexOf("、") === -1 && !/^\d|梯/.test(value)) return value; // 是規則說明不是名單
+    return value
+      .split("、")
+      .map((token) => `<span class="name-token">${token}</span>`)
+      .join("、");
+  }
+
+  function mealCard(dateStr, mealKey, mealData) {
     const S = window.App.State;
+    const block = window.App.TextFormat.mealRows(
+      dateStr,
+      { meals: { [mealKey]: mealData } },
+      mealKey,
+      labelNameMap()
+    );
     const dishes = mealData.dishes != null ? mealData.dishes : 0;
+    const sections = block.sections
+      .map(
+        (section) => `
+        <p class="section-tag">${section.title}${section.hint ? ` <span class="hint">（${section.hint}）</span>` : ""}</p>
+        ${section.notes.map((n) => `<div class="duty-line"><span class="duty-names hint">・${n}</span></div>`).join("")}
+        ${section.rows
+          .map(
+            (row) => `
+          <div class="duty-line">
+            <span class="duty-label">${row.label}</span>
+            <span class="duty-names">${wrapNames(row.value)}</span>
+          </div>`
+          )
+          .join("")}`
+      )
+      .join("");
     return `
       <div class="meal-card">
         <h3>${S.MEAL_LABELS[mealKey]} <span class="hint">${S.menuLabel(mealKey, dishes)}</span></h3>
-        <p class="section-tag">打菜</p>
-        ${S.SERVING_ROWS.map((rowKey) => {
-          const ids = window.App.DutyView.servingRowIds(mealData, rowKey);
-          // 沒人的行就不佔位（早餐沒有打飯；人不夠時沒有蓋便當）
-          if (!ids.length && ["rice", "lid", "boxing"].indexOf(rowKey) !== -1) return "";
-          return dutyLine(rowKey, ids);
-        }).join("")}
-        <p class="section-tag">勤務</p>
-        ${S.MEAL_DUTY_ROWS.map((rowKey) => {
-          const description = window.App.DutyView.mealRowDescription(rowKey);
-          if (description) return dutyLineText(rowKey, description);
-          return dutyLine(rowKey, window.App.DutyView.mealRowIds(mealData, rowKey));
-        }).join("")}
+        ${sections}
       </div>`;
   }
 
@@ -149,7 +178,9 @@ window.App.UI = window.App.UI || {};
         : ""
       }
       <div class="meal-grid">
-        ${window.App.State.MEAL_KEYS.map((meal) => mealCard(meal, schedule.meals[meal])).join("")}
+        ${window.App.TextFormat.mealKeysOf(schedule.date || selectedDate, schedule)
+          .map((meal) => mealCard(schedule.date || selectedDate, meal, schedule.meals[meal]))
+          .join("")}
         ${dailyCard(schedule.daily)}
       </div>
     `;

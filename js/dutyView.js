@@ -57,7 +57,17 @@ window.App = window.App || {};
       if (has(mealData, duty, memberId)) labels.push(short[duty]);
     });
 
-    if (has(mealData, "carryVehicle", memberId)) labels.push(short.carry);
+    /*
+     * 抬便當：分組指定好之前，大家都是「抬上車/上樓」，寫一個標籤就好；
+     * 指定好之後就要分清楚他是哪一組，不然個人分工看不出來要去哪。
+     * 抬下車全員都有，寫出來只是洗版，所以不列。
+     */
+    if (mealData && mealData.carryGrouped) {
+      if (has(mealData, "carryVehicle", memberId)) labels.push(short.carryVehicle);
+      if (has(mealData, "carryUpstairs", memberId)) labels.push(short.carryUpstairs);
+    } else if (has(mealData, "carryVehicle", memberId)) {
+      labels.push(short.carry);
+    }
     if (has(mealData, "cleanup", memberId)) labels.push(short.cleanup);
 
     return labels;
@@ -93,12 +103,17 @@ window.App = window.App || {};
 
   /*
    * 有些欄位與其列出十幾個名字，不如直接寫規則好讀。
-   * 抬便當上車、上樓就是「送便當的兩位以外全上」，送便當名單就在同一張表上面。
+   *   抬下車  隨時到、隨時搬，全員一起，永遠不列名字
+   *   抬上車／抬上樓  名冊指定分組之前，就是「送便當的兩位以外全上」；
+   *                  分組指定好之後就要列名字，這時回 null 讓上層去印名單
    */
-  const ROW_DESCRIPTIONS = { carry: "除了送便當的兩位，其餘全員" };
-
-  function mealRowDescription(rowKey) {
-    return ROW_DESCRIPTIONS[rowKey] || null;
+  function mealRowDescription(rowKey, mealData) {
+    if (rowKey === "carry") return "除了送便當的兩位，其餘全員";
+    if (rowKey === "carryDown") return "當餐在場的人全部一起（含送便當的兩位）";
+    if (rowKey === "carryVehicle" || rowKey === "carryUpstairs") {
+      return mealData && mealData.carryGrouped ? null : "除了送便當的兩位，其餘全員";
+    }
+    return null;
   }
 
   window.App.DutyView = {

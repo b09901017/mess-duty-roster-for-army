@@ -64,11 +64,16 @@ window.App = window.App || {};
       });
     });
 
-    // 抬便當＝在場的人扣掉送便當的兩位
+    /*
+     * 抬便當是規則不是名單，所以不從鎖定的內容讀，照樣重算：
+     *   抬下車／抬上車  在場的人全部（含送便當的兩位）
+     *   抬上樓          在場 − 送便當 − 倒廚餘
+     */
     const deliverySet = new Set(mealData.delivery || []);
-    const carry = presentIds.filter((id) => !deliverySet.has(id));
-    mealData.carryVehicle = carry.slice();
-    mealData.carryUpstairs = carry.slice();
+    const foodwasteSet = new Set(mealData.foodwaste || []);
+    mealData.carryDown = presentIds.slice();
+    mealData.carryVehicle = presentIds.slice();
+    mealData.carryUpstairs = presentIds.filter((id) => !deliverySet.has(id) && !foodwasteSet.has(id));
 
     // 鎖定內容裡的人，名冊上要真的存在；不在場卻有勤務的要講出來
     const known = new Set(dayMembers.map((m) => m.id));
@@ -248,30 +253,22 @@ window.App = window.App || {};
       });
 
       /*
-       * 抬便當分三段（使用者更新的流程）：
+       * 抬便當分三段（使用者 8/7 訂正的流程）：
        *   抬下車  隨時到、隨時搬，當餐在場的人全部一起（含送便當的兩位）
-       *   抬上車  固定一組人（名冊上勾「抬上車」）
-       *   抬上樓  固定另一組人（名冊上勾「抬上樓」）
-       * 分組還沒指定的話，上車／上樓就先照舊「除了送便當的兩位，其餘全員」，
-       * 這樣名單填好之前班表照樣印得出來。
+       *   抬上車  同上，也是全員一起
+       *   抬上樓  **集合之後分出來的那一批：倒廚餘以外的所有人**
+       *
+       * 抬上樓不是名冊上的固定分組，是推導出來的——打完自己的便當、全體集合、
+       * 念完班表之後當場分兩批：排到廚餘的人去倒廚餘，其餘所有人把便當抬上樓。
+       * 送便當的兩位那一餐在外面跑便當，所以不算在抬上樓裡（抬下車、上車是隨時
+       * 進行的，他們還在，所以那兩行含他們）。
        */
       const carryDownIds = present.map((m) => m.id);
-      const grouped = present.some((m) => m.carryGroup);
-      const carryVehicleIds = grouped
-        ? present.filter((m) => m.carryGroup === "vehicle").map((m) => m.id)
-        : present.filter((m) => !deliveryIds.includes(m.id)).map((m) => m.id);
-      const carryUpstairsIds = grouped
-        ? present.filter((m) => m.carryGroup === "upstairs").map((m) => m.id)
-        : present.filter((m) => !deliveryIds.includes(m.id)).map((m) => m.id);
-      if (grouped) {
-        const unassigned = present.filter((m) => !m.carryGroup);
-        if (unassigned.length) {
-          warnings.push(
-            `${St.MEAL_LABELS[meal]}：${unassigned.map((m) => m.name).join("、")} 還沒指定抬上車／抬上樓，` +
-              `請到「名冊」補上。`
-          );
-        }
-      }
+      const carryVehicleIds = present.map((m) => m.id);
+      const foodwasteSet = new Set(otherAssign.foodwaste);
+      const carryUpstairsIds = present
+        .filter((m) => !deliveryIds.includes(m.id) && !foodwasteSet.has(m.id))
+        .map((m) => m.id);
 
       /*
        * 對照表的每一列加上送便當兩位應該剛好等於出勤人數。對不起來的時候不會有人
@@ -303,7 +300,6 @@ window.App = window.App || {};
         dishwash: dishwashIds,
         foodwaste: otherAssign.foodwaste,
         carryDown: carryDownIds,
-        carryGrouped: grouped,
         carryVehicle: carryVehicleIds,
         carryUpstairs: carryUpstairsIds,
         floor: otherAssign.floor,
@@ -345,14 +341,20 @@ window.App = window.App || {};
        * 鎖定的日子也要把輪替進度往前推，跟洗衣籃、洗碗一樣。
        * 少了這一步，隔天會從隊伍頭重新開始——8/6 鎖定版換水是 261-7、08、263-1、2、3，
        * 而 8/7 又從 261-3 排起，柏宇就會連兩天換水。
+       *
+       * 但 8/7 早上已經照舊排過、實際換完了，所以這條從 WATER_RULES_FROM 才生效：
+       * 8/6 不推進 → 8/7 維持原本從隊伍頭排起的結果。
        */
-      waterDay.newWaterState = window.App.WaterSchedule.advanceWaterState(snapshot.waterState, waterDay.ids);
+      if (dateStr >= St.WATER_RULES_FROM) {
+        waterDay.newWaterState = window.App.WaterSchedule.advanceWaterState(snapshot.waterState, waterDay.ids);
+      }
     } else if (dateStr >= St.WATER_START) {
       waterDay = window.App.WaterSchedule.computeWaterDay(
         snapshot.waterState,
         dayMembers,
         meals[St.WATER_MEAL].cleanup,
-        availableForMeal
+        availableForMeal,
+        dateStr
       );
     }
     waterDay.warnings.forEach((w) => warnings.push(w));

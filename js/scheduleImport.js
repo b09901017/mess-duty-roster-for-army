@@ -47,7 +47,13 @@ window.App = window.App || {};
   }
 
   // 標籤改名前已經公布出去的說法，還是要讀得回來
-  const LEGACY_ALIASES = { 包餐盒: "boxing", "抬飲料＋包餐盒": "drinks", 清地板: "floor" };
+  const LEGACY_ALIASES = {
+    包餐盒: "boxing",
+    "抬飲料＋包餐盒": "drinks",
+    清地板: "floor",
+    清地板收垃圾: "floor",
+    廚餘: "foodwaste", // 8/7 訂正後改叫「倒廚餘」
+  };
 
   const MEAL_DUTY_KEYS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "cleanup"];
 
@@ -57,6 +63,11 @@ window.App = window.App || {};
   const DAILY_LABEL_TO_KEY = buildLabelIndex(St0.DAILY_DUTY_ROWS, St0.DUTY_LABELS, LEGACY_ALIASES);
 
   const MEAL_BY_LABEL = { 早餐: "breakfast", 中餐: "lunch", 晚餐: "dinner" };
+
+  // 哪些段落標題底下是「打菜流程」的欄位，從 MEAL_SECTIONS 反查，不要寫死標題
+  const SERVE_SECTION_TITLES = new Set(
+    St0.MEAL_SECTIONS.filter((s) => s.key === "serve").map((s) => s.title)
+  );
 
   /** 名字 → 人員 id。同時收全名與後兩字，後兩字撞名的就只認全名。 */
   function buildNameIndex(members) {
@@ -146,9 +157,18 @@ window.App = window.App || {};
           return;
         }
 
-        const sectionHeader = line.match(/^〔(.+?)〕$/);
+        /*
+         * 段落標題。後面可能還有括號的補充說明（「〔前置〕（有空的都幫忙）」），
+         * 所以不能要求整行到「〕」就結束——以前規定要結束，結果有補充說明的段落
+         * 不被認成標題，section 會沿用上一段的值。8/7 把「抬便當」「集合」這些
+         * 段落加上補充說明之後就踩到了：整段被當成還在「打菜」，倒廚餘、送便當
+         * 全部讀不到。
+         *
+         * 哪一段是打菜也不寫死，從 MEAL_SECTIONS 反查，標題改名才不會又跟丟。
+         */
+        const sectionHeader = line.match(/^〔(.+?)〕/);
         if (sectionHeader) {
-          section = sectionHeader[1].trim() === "打菜" ? "serving" : "duty";
+          section = SERVE_SECTION_TITLES.has(sectionHeader[1].trim()) ? "serving" : "duty";
           return;
         }
 
@@ -251,15 +271,13 @@ window.App = window.App || {};
    * 格式長這樣：
    *     陳柏翰
    *       早　打菜：抬飲料
-   *       　　勤務：洗碗、抬上車/上樓
+   *       　　勤務：洗碗、抬上樓
    *       另：抬洗衣籃上來
    * 讀進來之後再「翻面」成依勤務的名單。
    */
   // 一樣從 DUTY_SHORT_LABELS 反推，不要手寫（理由見上面 buildLabelIndex 的說明）
   const SHORT_SERVING_TO_KEY = buildLabelIndex(St0.SERVING_ROWS, St0.DUTY_SHORT_LABELS, LEGACY_ALIASES);
-  const SHORT_DUTY_TO_KEY = buildLabelIndex(MEAL_DUTY_KEYS, St0.DUTY_SHORT_LABELS, {
-    清地板收垃圾: "floor",
-  });
+  const SHORT_DUTY_TO_KEY = buildLabelIndex(MEAL_DUTY_KEYS, St0.DUTY_SHORT_LABELS, LEGACY_ALIASES);
   const SHORT_DAILY_TO_KEY = buildLabelIndex(St0.DAILY_DUTY_ROWS, St0.DUTY_SHORT_LABELS, LEGACY_ALIASES);
 
   const MEAL_BY_HEAD = { 早: "breakfast", 中: "lunch", 晚: "dinner" };

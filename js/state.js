@@ -85,12 +85,18 @@ window.App = window.App || {};
   const MEAL_LABELS = { breakfast: "早餐", lunch: "中餐", dinner: "晚餐" };
 
   /*
-   * 一餐的實際流程（使用者 8/7 更新）：
+   * 一餐的實際流程（使用者 8/7 訂正）：
    *
-   *   前置 ➡️ 打菜 ➡️ 打自己的便當 ➡️ 抬下車／上車／上樓 ➡️ 集合休息 10 分鐘
-   *   ➡️ 善後勤務 ➡️ 撤收
+   *   前置 ➡️ 打菜 ➡️ 打自己的便當（不能吃）➡️ 統一集合
+   *   ➡️ 倒廚餘／抬上樓 ➡️ 休息 10 分鐘 ➡️ 善後勤務 ➡️ 撤收
    *
-   * 班表照這個順序分段印，班表看起來就跟現場的動線一樣。
+   * ⚠️ 重點訂正：**倒廚餘不屬於善後勤務**。
+   * 打完自己的便當之後全體先集合、念一下班表，然後當場分成兩批同時進行——
+   * 一批去倒廚餘（就是班表上排到廚餘的那些人），其餘所有人把便當抬上樓。
+   * 所以善後勤務只剩洗碗、擦桌子、清地板，而抬上樓是**推導**出來的（廚餘以外的人），
+   * 不是名冊上的固定分組。
+   *
+   * 班表照這個順序分段印，看起來就跟現場的動線一樣。
    * 三個畫面（網頁班表、文字班表、LINE 卡片）都吃這一份定義，不會三邊長歪。
    */
   const MEAL_SECTIONS = [
@@ -104,16 +110,23 @@ window.App = window.App || {};
     { key: "serve", title: "打菜", rows: ["rice", "serveDish", "lid", "count", "drinks", "boxing"] },
     {
       key: "carry",
-      title: "抬便當",
-      notes: ["打我們自己的便當（不先吃）"],
-      rows: ["carryDown", "carryVehicle", "delivery", "carryUpstairs"],
+      title: "抬便當下車、上車",
+      hint: "隨時到、隨時搬",
+      rows: ["carryDown", "carryVehicle", "delivery"],
     },
-    { key: "after", title: "善後勤務", hint: "集合、統一休息 10 分鐘之後", rows: ["dishwash", "foodwaste", "wipe", "floor"] },
+    {
+      key: "gather",
+      title: "打完菜：統一集合",
+      hint: "打自己的便當，先不要吃",
+      notes: ["集合念一下班表，然後分兩批同時進行"],
+      rows: ["foodwaste", "carryUpstairs"],
+    },
+    { key: "after", title: "善後勤務", hint: "下來統一休息 10 分鐘之後", rows: ["dishwash", "wipe", "floor"] },
     { key: "cleanup", title: "撤收", rows: ["cleanup"] },
   ];
 
-  // 打完菜之後才做的那些（善後＋撤收），公平性與稽核會用到
-  const MEAL_DUTY_ROWS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "carry", "cleanup"];
+  // 打完菜之後才做的那些（倒廚餘＋善後＋撤收），公平性與稽核會用到
+  const MEAL_DUTY_ROWS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "carryUpstairs", "cleanup"];
 
   /*
    * 有些日子不是三餐都要排。8/14 是最後一天，任務下午前就結束了，只吃早餐。
@@ -132,6 +145,14 @@ window.App = window.App || {};
   const WATER_MEAL = "breakfast"; // 撤收排完才排換水，而且不跟那一餐的撤收重複
   const WATER_COUNT = 5;
   const WATER_START = "2026-08-06";
+  /*
+   * 「不能有人連兩天換水」與「鎖定的日子也要推進換水進度」從這天起才生效。
+   *
+   * 8/7 早上已經換過水了（柏宇那批），那是實際發生過的事，不能被新規則改掉——
+   * 所以 8/7 照舊：8/6 是鎖定的、進度不往前推，8/7 從隊伍頭重新排起。
+   * 8/8 起才開始接續輪替並擋掉前一天那批。
+   */
+  const WATER_RULES_FROM = "2026-08-08";
 
   /*
    * 一餐從頭到尾的流程。
@@ -146,15 +167,20 @@ window.App = window.App || {};
       who: "有空的都幫忙",
       notes: ["搬各連的箱子出來", "把地上有便當盒的箱子搬到桌上", "搬菜桶上桌"],
     },
-    { title: "打菜", who: "照班表分工", notes: ["打飯・打菜・蓋便當", "計數・抬飲料・包便當"] },
-    { title: "打自己的便當", who: "全員", notes: ["先打起來，不要先吃"] },
     {
-      title: "抬便當",
-      who: "下車全員，上車／上樓分兩組",
-      notes: ["抬下車：隨時到、隨時搬", "抬上車／抬上樓：照班表"],
+      title: "打菜",
+      who: "照班表分工",
+      notes: ["打飯・打菜・蓋便當", "計數・抬飲料・包便當", "抬便當下車、上車：隨時到隨時搬，全員一起"],
     },
-    { title: "集合休息", who: "全員", notes: ["集合之後統一休息 10 分鐘"] },
-    { title: "善後勤務", who: "照班表分工", notes: ["洗碗・廚餘", "擦桌子・清地板收垃圾"] },
+    { title: "打自己的便當", who: "全員", notes: ["先打起來，不能吃"] },
+    { title: "統一集合", who: "全員", notes: ["集合念一下班表，然後分兩批"] },
+    {
+      title: "倒廚餘／抬上樓",
+      who: "分兩批，同時進行",
+      notes: ["倒廚餘：班表上排到廚餘的人", "抬上樓：倒廚餘以外的所有人"],
+    },
+    { title: "休息", who: "全員", notes: ["下來統一休息 10 分鐘"] },
+    { title: "善後勤務", who: "照班表分工", notes: ["洗碗・擦桌子・清地板收垃圾"] },
     { title: "撤收", who: "照班表分工", notes: [] },
   ];
 
@@ -184,11 +210,11 @@ window.App = window.App || {};
 
   const DUTY_LABELS = {
     dishwash: "洗碗",
-    foodwaste: "廚餘",
+    // 倒廚餘是「集合完馬上做」的事，不屬於善後勤務，標籤直接寫清楚
+    foodwaste: "倒廚餘",
     carryDown: "抬便當下車",
     carryVehicle: "抬便當上車",
     carryUpstairs: "抬便當上樓",
-    carry: "抬便當上車、上樓",
     wipe: "擦桌子",
     rice: "打飯",
     serveDish: "打菜",
@@ -210,8 +236,7 @@ window.App = window.App || {};
   // 個人分工那邊用短一點的說法，一行才塞得下
   const DUTY_SHORT_LABELS = {
     dishwash: "洗碗",
-    foodwaste: "廚餘",
-    carry: "抬上車/上樓",
+    foodwaste: "倒廚餘",
     carryDown: "抬下車",
     rice: "打飯",
     serveDish: "打菜",
@@ -1059,6 +1084,7 @@ window.App = window.App || {};
     WATER_MEAL,
     WATER_COUNT,
     WATER_START,
+    WATER_RULES_FROM,
     DAILY_DUTY_ROWS,
     DUTY_LABELS,
     DUTY_SHORT_LABELS,

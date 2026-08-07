@@ -36,16 +36,6 @@ const chromium = loadChromium();
   await page.evaluate(() => {
     const S = window.App.State.get();
     S.shoppingByDate = { '2026-08-09': ['261-3', '261-5'], '2026-08-11': ['263-4'] };
-    /*
-     * 抬上車／抬上樓的固定分組還沒定案，但程式支援了就要驗到。
-     * 這裡把每個人都指定一組（分組是名冊屬性，不分日期），確認：
-     * 兩組不重疊、加起來剛好是當餐在場的人、而且真的照名冊的組別走。
-     */
-    const VEHICLE = new Set(['261-3', '261-6', '261-7', '261-8', '263-1', '263-2']);
-    S.members.forEach((m) => {
-      if (m.dutyExempt) return; // 愷宸不抬便當
-      m.carryGroup = VEHICLE.has(m.id) ? 'vehicle' : 'upstairs';
-    });
     for (let i = 1; i <= 14; i++) window.App.ScheduleEngine.commitDay('2026-08-' + String(i).padStart(2, '0'));
   });
 
@@ -159,27 +149,26 @@ const chromium = loadChromium();
         const deliveryThisMeal = delivery.filter(id => activeAt(id, meal));
         if (!eq(set(m.delivery || []), set(deliveryThisMeal))) fail(d, `${meal} 送便當名單不符`);
 
-        // ── 抬便當三段（8/7 起的新流程）──
-        // 抬下車：當餐在場的人全部一起，含送便當的兩位
+        /*
+         * ── 抬便當（8/7 訂正後的流程）──
+         * 抬下車、抬上車：隨時到隨時搬，當餐在場的人全部一起（含送便當的兩位）
+         * 抬上樓：集合之後分出來的那一批 ＝ 在場 − 送便當 − 倒廚餘
+         */
         if (!eq(set(m.carryDown || []), set(present))) fail(d, `${meal} 抬下車應該是全員`);
-        if (m.carryGrouped) {
-          // 名冊指定分組之後，上車＋上樓要剛好把在場的人分完，而且不重疊
-          const veh = set(m.carryVehicle || []), up = set(m.carryUpstairs || []);
-          [...veh].forEach(id => { if (up.has(id)) fail(d, `${meal} ${nm(id)} 同時被排到抬上車與抬上樓`); });
-          const both = new Set([...veh, ...up]);
-          if (!eq(both, set(present))) fail(d, `${meal} 抬上車＋抬上樓沒有把在場的人分完`);
-          (m.carryVehicle || []).forEach(id => {
-            if ((St.memberById(id) || {}).carryGroup !== 'vehicle') fail(d, `${meal} ${nm(id)} 名冊不是抬上車組`);
-          });
-          (m.carryUpstairs || []).forEach(id => {
-            if ((St.memberById(id) || {}).carryGroup !== 'upstairs') fail(d, `${meal} ${nm(id)} 名冊不是抬上樓組`);
-          });
-        } else {
-          // 還沒指定分組：兩者都是「送便當的兩位以外全上」
-          const expectCarry = set(present.filter(id => !delivery.filter(x => activeAt(x, meal)).includes(id)));
-          if (!eq(set(m.carryVehicle || []), expectCarry)) fail(d, `${meal} 抬上車名單不符`);
-          if (!eq(set(m.carryUpstairs || []), expectCarry)) fail(d, `${meal} 抬上樓名單與抬上車不一致`);
+        if (!eq(set(m.carryVehicle || []), set(present))) fail(d, `${meal} 抬上車應該是全員`);
+        const upExpect = set(present.filter(id =>
+          !deliveryHere.includes(id) && !(m.foodwaste || []).includes(id)));
+        if (!eq(set(m.carryUpstairs || []), upExpect)) {
+          fail(d, `${meal} 抬上樓應該是「在場 − 送便當 − 倒廚餘」`);
         }
+        // 倒廚餘的人不能同時被排到抬上樓——那兩批是同時進行的
+        (m.foodwaste || []).forEach(id => {
+          if ((m.carryUpstairs || []).includes(id)) fail(d, `${meal} ${nm(id)} 同時被排到倒廚餘與抬上樓`);
+        });
+        // 倒廚餘 ＋ 抬上樓 要把「在場扣掉送便當」的人剛好分完，不能有人兩邊都不在
+        const splitBoth = new Set([...(m.foodwaste || []), ...(m.carryUpstairs || [])]);
+        const shouldSplit = set(present.filter(id => !deliveryHere.includes(id)));
+        if (!eq(splitBoth, shouldSplit)) fail(d, `${meal} 倒廚餘＋抬上樓沒有把在場的人分完`);
 
         // ── 打菜流程 ──
         const sv = m.serving || {};
@@ -357,7 +346,8 @@ const chromium = loadChromium();
        * 真的湊不出來時程式會放寬並跳警告，那種情況就不算錯。
        */
       const wIdx = dates.indexOf(d);
-      if (wIdx > 0 && water.length) {
+      // 8/7 早上已經照舊換過水了，那天不套這條（見 State.WATER_RULES_FROM）
+      if (wIdx > 0 && water.length && d >= St.WATER_RULES_FROM) {
         const prevWater = S.schedules[dates[wIdx - 1]].daily.water || [];
         const backToBack = water.filter(id => prevWater.includes(id));
         const relaxWarned = (sc.warnings || []).some(w => w.indexOf('只好連兩天') !== -1);
@@ -459,20 +449,15 @@ const chromium = loadChromium();
           const labels = DV.mealDutyLabels(m, mem.id);
           if (!activeAt(mem.id, meal)) return;  // 已離營，個人分工顯示「已離營」
           /*
-         * 抬便當：分組指定好之前，個人分工寫的是合併的「抬上車/上樓」；
-         * 指定好之後要分清楚他是哪一組，不然看不出來要去哪。
-         */
-          if (m.carryGrouped) {
-            [['carryVehicle', '抬上車'], ['carryUpstairs', '抬上樓']].forEach(([key, label]) => {
-              const should = (m[key] || []).includes(mem.id);
-              if (should !== labels.includes(label)) {
-                fail(d, `${meal} ${nm(mem.id)} 個人分工的${label} 與班表不一致（班表:${should} 文字:${labels.includes(label)}）`);
-              }
-            });
-          } else {
-            const shouldCarry = (m.carryVehicle || []).includes(mem.id);
-            const hasCarry = labels.includes('抬上車/上樓');
-            if (shouldCarry !== hasCarry) fail(d, `${meal} ${nm(mem.id)} 個人分工的抬上車/上樓 與班表不一致（班表:${shouldCarry} 文字:${hasCarry}）`);
+           * 個人分工只列「抬上樓」——抬下車、抬上車是全員一起，寫出來只是洗版。
+           * 「我今天是去倒廚餘還是抬上樓」才是個人分工要回答的事。
+           */
+          const shouldUp = (m.carryUpstairs || []).includes(mem.id);
+          if (shouldUp !== labels.includes('抬上樓')) {
+            fail(d, `${meal} ${nm(mem.id)} 個人分工的抬上樓 與班表不一致（班表:${shouldUp} 文字:${labels.includes('抬上樓')}）`);
+          }
+          if (labels.includes('抬下車') || labels.includes('抬上車')) {
+            fail(d, `${meal} ${nm(mem.id)} 個人分工不該列抬下車／抬上車（那是全員一起的）`);
           }
           const shouldClean = (m.cleanup || []).includes(mem.id);
           if (shouldClean !== labels.includes('撤收')) fail(d, `${meal} ${nm(mem.id)} 個人分工的撤收 不一致`);

@@ -45,7 +45,7 @@ window.App = window.App || {};
   }
 
   /**
-   * 某人某一餐打完菜之後的勤務清單（回傳短標籤陣列，例如 ["廚餘","抬上車/上樓","撤收"]）
+   * 某人某一餐打完菜之後的勤務清單（回傳短標籤陣列，例如 ["洗碗","抬上樓","撤收"]）
    */
   function mealDutyLabels(mealData, memberId) {
     const short = window.App.State.DUTY_SHORT_LABELS;
@@ -58,16 +58,12 @@ window.App = window.App || {};
     });
 
     /*
-     * 抬便當：分組指定好之前，大家都是「抬上車/上樓」，寫一個標籤就好；
-     * 指定好之後就要分清楚他是哪一組，不然個人分工看不出來要去哪。
-     * 抬下車全員都有，寫出來只是洗版，所以不列。
+     * 抬便當只列「抬上樓」。
+     * 抬下車與抬上車是全員一起、隨時到隨時搬，每個人都寫一次只是洗版；
+     * 抬上樓則是集合之後分出來的那一批（倒廚餘以外的所有人），
+     * 「今天我是去倒廚餘還是抬上樓」正是個人分工要回答的問題，所以要列。
      */
-    if (mealData && mealData.carryGrouped) {
-      if (has(mealData, "carryVehicle", memberId)) labels.push(short.carryVehicle);
-      if (has(mealData, "carryUpstairs", memberId)) labels.push(short.carryUpstairs);
-    } else if (has(mealData, "carryVehicle", memberId)) {
-      labels.push(short.carry);
-    }
+    if (has(mealData, "carryUpstairs", memberId)) labels.push(short.carryUpstairs);
     if (has(mealData, "cleanup", memberId)) labels.push(short.cleanup);
 
     return labels;
@@ -87,12 +83,8 @@ window.App = window.App || {};
     return labels;
   }
 
-  /**
-   * 依「顯示用的欄位名稱」取出那一餐的人員清單。
-   * carry 與 lunchbagHelp 是顯示用的合併欄位，不是班表資料裡真正的欄位。
-   */
+  /** 依「顯示用的欄位名稱」取出那一餐的人員清單 */
   function mealRowIds(mealData, rowKey) {
-    if (rowKey === "carry") return (mealData && mealData.carryVehicle) || [];
     return (mealData && mealData[rowKey]) || [];
   }
 
@@ -103,15 +95,13 @@ window.App = window.App || {};
 
   /*
    * 有些欄位與其列出十幾個名字，不如直接寫規則好讀。
-   *   抬下車  隨時到、隨時搬，全員一起，永遠不列名字
-   *   抬上車／抬上樓  名冊指定分組之前，就是「送便當的兩位以外全上」；
-   *                  分組指定好之後就要列名字，這時回 null 讓上層去印名單
+   *   抬下車／抬上車  隨時到、隨時搬，當餐在場的人全部一起，永遠不列名字
+   *   抬上樓          集合之後分出來的那一批（倒廚餘以外的人），**要列名字**，
+   *                   所以回 null 讓上層去印名單
    */
   function mealRowDescription(rowKey, mealData) {
-    if (rowKey === "carry") return "除了送便當的兩位，其餘全員";
-    if (rowKey === "carryDown") return "當餐在場的人全部一起（含送便當的兩位）";
-    if (rowKey === "carryVehicle" || rowKey === "carryUpstairs") {
-      return mealData && mealData.carryGrouped ? null : "除了送便當的兩位，其餘全員";
+    if (rowKey === "carryDown" || rowKey === "carryVehicle") {
+      return "當餐在場的人全部一起（含送便當的兩位）";
     }
     return null;
   }

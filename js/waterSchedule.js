@@ -43,15 +43,18 @@ window.App = window.App || {};
    * @param {object[]} dayMembers - 當天有出現過的人
    * @param {string[]} excludeIds - 當天早上撤收的人（不重複排）
    * @param {(memberId: string, meal: string) => boolean} [isAvailable]
+   * @param {string} [dateStr] - 用來判斷「不能連兩天」這條生效了沒（見 WATER_RULES_FROM）
    * @returns {{ids: string[], newWaterState: object, warnings: string[]}}
    */
-  function computeWaterDay(waterState, dayMembers, excludeIds, isAvailable) {
+  function computeWaterDay(waterState, dayMembers, excludeIds, isAvailable, dateStr) {
     const St = window.App.State;
     const available = isAvailable || (() => true);
     const warnings = [];
     const meal = St.WATER_MEAL;
     const need = St.WATER_COUNT;
     const state = waterState || { lastAssignedId: null, lastIds: [] };
+    // 8/7 早上已經換過水了，那天照舊；8/8 起才開始擋連兩天
+    const noRepeat = !dateStr || dateStr >= St.WATER_RULES_FROM;
 
     const queue = waterPool(dayMembers);
     if (!queue.length) return { ids: [], newWaterState: advanceWaterState(state, []), warnings };
@@ -90,12 +93,12 @@ window.App = window.App || {};
       return picked;
     }
 
-    let picked = pick(false);
+    let picked = pick(!noRepeat);
     /*
      * 擋掉昨天那批之後湊不滿，才放寬這條——那天沒人換水比有人連兩天嚴重。
      * 放寬了一定要講出來，不然使用者會以為規則沒生效。
      */
-    if (picked.length < need) {
+    if (noRepeat && picked.length < need) {
       const relaxed = pick(true);
       if (relaxed.length > picked.length) {
         const repeats = relaxed.filter((id) => yesterday.has(id));

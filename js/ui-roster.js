@@ -66,13 +66,6 @@ window.App.UI = window.App.UI || {};
             ).join("")}
           </select>
         </td>
-        <td data-label="抬便當">
-          <select class="carry-group-select" data-id="${m.id}">
-            <option value=""${!m.carryGroup ? " selected" : ""}>（未指定）</option>
-            <option value="vehicle"${m.carryGroup === "vehicle" ? " selected" : ""}>抬上車</option>
-            <option value="upstairs"${m.carryGroup === "upstairs" ? " selected" : ""}>抬上樓</option>
-          </select>
-        </td>
         <td data-label="打菜固定角色">
           <select class="serving-role-select" data-id="${m.id}">
             <option value="">（輪替）</option>
@@ -146,7 +139,7 @@ window.App.UI = window.App.UI || {};
         }
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>固定勤務</th><th>抬便當</th><th>打菜固定角色</th><th>操作</th></tr></thead>
+          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>固定勤務</th><th>打菜固定角色</th><th>操作</th></tr></thead>
           <tbody>${c.list.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
@@ -165,7 +158,7 @@ window.App.UI = window.App.UI || {};
   }
 
   function emptyRow() {
-    return `<tr><td colspan="10" class="empty-state">尚無人員</td></tr>`;
+    return `<tr><td colspan="9" class="empty-state">尚無人員</td></tr>`;
   }
 
   function bindEvents() {
@@ -243,19 +236,6 @@ window.App.UI = window.App.UI || {};
     root.querySelectorAll(".duty-exempt").forEach((box) => {
       box.addEventListener("change", () => {
         window.App.Roster.updateMember(box.dataset.id, { dutyExempt: box.checked });
-        window.App.ScheduleEngine.rebuildAll();
-        render();
-        rerenderAll();
-      });
-    });
-
-    /*
-     * 抬便當分組：抬上車與抬下車是固定一組人，抬上樓是另一組。
-     * 兩組都沒人指定的話，班表就先照舊寫「除了送便當的兩位，其餘全員」。
-     */
-    root.querySelectorAll(".carry-group-select").forEach((sel) => {
-      sel.addEventListener("change", () => {
-        window.App.Roster.updateMember(sel.dataset.id, { carryGroup: sel.value || null });
         window.App.ScheduleEngine.rebuildAll();
         render();
         rerenderAll();

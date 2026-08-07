@@ -125,6 +125,61 @@ console.log('  8/7 洗衣籃上來 =', (st.schedules['2026-08-07'].daily.laundry
 console.log('  8/7 早餐洗碗 =', st.schedules['2026-08-07'].meals.breakfast.dishwash.map(id=>f.State.memberById(id).name).join('、'));
 console.log('  8/14 有幾餐 =', ['breakfast','lunch','dinner'].filter(m=>st.schedules['2026-08-14'].meals[m]).length);
 
+/*
+ * G. 文字班表貼回來鎖定，讀到的內容要跟原本的班表一模一樣。
+ *
+ * 這條是踩過坑才加的：對照表以前是手寫的，標籤改名（包餐盒→包便當、
+ * 掃廁所加上時段）之後沒跟上，貼回來會**靜默漏掉**那幾行——查不到 key 是直接跳過、
+ * 不報錯，鎖定的那天就少了一批人。現在對照表改成從 DUTY_LABELS 反推，
+ * 這個測試確保以後標籤再怎麼改都還讀得回來。
+ */
+console.log('\n文字班表貼回來（鎖定用）：');
+let roundTripOk = true;
+const g = seedPicks(createApp(null));
+days.forEach(d => g.ScheduleEngine.commitDay(d));
+const gst = g.State.get();
+const gnames = g.TextFormat.displayNameMap();
+['2026-08-09', '2026-08-11', '2026-08-14'].forEach(date => {
+  const sc = gst.schedules[date];
+  [['依餐別', g.TextFormat.buildMealText(date, sc, gnames)],
+   ['依個人', g.TextFormat.buildPersonText(date, sc, gnames)]].forEach(([kind, text]) => {
+    const r = g.ScheduleImport.parseScheduleText(text, gst.members);
+    const problems = [];
+    if (!r.ok) problems.push(...r.errors);
+    problems.push(...r.warnings);
+    // 每一餐：讀回來的打菜名單要剛好等於那一餐在場的人
+    if (r.ok) {
+      g.State.MEAL_KEYS.filter(m => sc.meals[m]).forEach(meal => {
+        const present = g.State.activeMembersOn(date, meal)
+          .filter(m => !m.dutyExempt)
+          .filter(m => meal === 'dinner' || !(sc.daily.shopping || []).includes(m.id))
+          .map(m => m.id);
+        const serving = r.override.meals[meal].serving || {};
+        const got = Object.keys(serving).flatMap(k => serving[k] || []);
+        const missing = present.filter(id => !got.includes(id));
+        if (missing.length) {
+          problems.push(`${meal} 打菜漏了 ${missing.map(id => g.State.memberById(id).name).join('、')}`);
+        }
+        // 勤務欄位也要讀得回來，不能整行消失
+        ['dishwash', 'foodwaste', 'wipe', 'floor', 'cleanup'].forEach(k => {
+          if ((sc.meals[meal][k] || []).length && !(r.override.meals[meal][k] || []).length) {
+            problems.push(`${meal} ${k} 整行沒讀到`);
+          }
+        });
+      });
+      g.State.DAILY_DUTY_ROWS.forEach(k => {
+        if ((sc.daily[k] || []).length && !(r.override.daily[k] || []).length) {
+          problems.push(`全日 ${k} 整行沒讀到`);
+        }
+      });
+    }
+    if (problems.length) roundTripOk = false;
+    console.log(`  ${date} ${kind} → ${problems.length ? '❌ ' + problems.length + ' 個問題' : '✅ 讀回來完全一致'}`);
+    problems.slice(0, 5).forEach(p => console.log('      ' + p));
+  });
+});
+allOk = roundTripOk && allOk;
+
 const same = JSON.stringify(b.State.get().dutyCounts) === snapA
   && JSON.stringify(c.State.get().dutyCounts) === snapA
   && JSON.stringify(d2.State.get().dutyCounts) === snapA;

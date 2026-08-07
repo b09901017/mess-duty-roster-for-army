@@ -126,6 +126,35 @@ const chromium = loadChromium();
         // 洗碗不能有送便當的人
         (m.dishwash || []).forEach(id => { if (delivery.includes(id)) fail(d, `${meal} 送便當的 ${nm(id)} 被排到洗碗`); });
 
+        /*
+         * ── 固定勤務（招員：早晚洗碗＋中午廚餘）──
+         * 指定了哪幾餐就那幾餐一定要在名單裡；沒指定的那幾餐不能出現在那一項的輪替裡。
+         */
+        present.forEach(id => {
+          const mem = St.memberById(id);
+          [['fixedDishwashMeals', 'dishwash', '洗碗'], ['fixedFoodwasteMeals', 'foodwaste', '廚餘']]
+            .forEach(([key, field, label]) => {
+              const fixedMeals = Array.isArray(mem[key]) ? mem[key] : [];
+              if (!fixedMeals.length) return;
+              const listed = (m[field] || []).includes(id);
+              if (fixedMeals.includes(meal) && !listed) {
+                fail(d, `${meal} ${nm(id)} 固定${label}卻沒被排到`);
+              }
+              if (!fixedMeals.includes(meal) && listed) {
+                fail(d, `${meal} ${nm(id)} 這一餐不是他固定${label}的餐別，卻被排到${label}`);
+              }
+            });
+          /*
+           * 有固定洗碗餐別的人整天不進洗碗輪替，也不做擦桌子／清地板——
+           * 早晚在洗碗、中午在廚餘，本來就沒有空檔。
+           */
+          if ((St.fixedDishwashMealsOf(mem) || []).length) {
+            ['wipe', 'floor'].forEach(k => {
+              if ((m[k] || []).includes(id)) fail(d, `${meal} 有固定洗碗餐別的 ${nm(id)} 被排到 ${k}`);
+            });
+          }
+        });
+
         // 送便當欄位 = 那一餐還在營的固定送便當的人
         const deliveryThisMeal = delivery.filter(id => activeAt(id, meal));
         if (!eq(set(m.delivery || []), set(deliveryThisMeal))) fail(d, `${meal} 送便當名單不符`);
@@ -240,6 +269,16 @@ const chromium = loadChromium();
           || Object.keys(mm.serving || {}).some(r => (mm.serving[r] || []).includes(x.id));
         if (inAny) fail(d, `${nm(x.id)} 只排掃廁所，卻出現在 ${meal} 的班表裡`);
       }));
+      /*
+       * 全日勤務也要擋。掃廁所是他唯一該做的事，換水、洗衣籃、採買都不行。
+       * （之前只檢查三餐，洗衣籃拿的是整份名冊、沒有經過「不算人頭」那道濾網，
+       *   結果他真的被排到抬洗衣籃，稽核卻抓不到。）
+       */
+      exempt.forEach(x => {
+        ['water', 'laundryUp', 'laundryDown', 'shopping'].forEach(k => {
+          if ((sc.daily[k] || []).includes(x.id)) fail(d, `${nm(x.id)} 只排掃廁所，卻被排到 ${k}`);
+        });
+      });
 
       const cleanupAll = MEALS.flatMap(meal => sc.meals[meal].cleanup || []);
       const dup = cleanupAll.filter((x, i) => cleanupAll.indexOf(x) !== i);
@@ -250,14 +289,16 @@ const chromium = loadChromium();
        * 所以檢查的是名額有沒有坐滿，以及有沒有排到不該排的人。
        */
       /*
-       * 固定洗碗的招員完全不排撤收，所以名額是照「扣掉他們之後還有幾個人」算的。
+       * 招員早、晚在洗碗（洗碗的人那一餐不排撤收），但中午做的是廚餘，
+       * 廚餘沒有免撤收這條，所以他們中午照樣要排撤收——不能整組扣掉。
+       * 只有「三餐都固定洗碗」的人整天排不到撤收，人數階梯才要把他們扣掉。
        * 而且引擎會先問「今天最多真的排得出幾個人次」再查階梯，人頭數會高估
        * （退伍當天只剩早中、送便當只有晚上），所以直接拿引擎當天的目標來比。
        */
-      const cleanupPool = active.filter(x => !x.fixedDishwash);
+      const cleanupPool = active.filter(x => !St.isFixedDishwashAllDay(x));
       const desired = sc.cleanupDesired || St2.CleanupSchedule.cleanupSizes(cleanupPool.length);
       cleanupAll.forEach(id => {
-        if ((St.memberById(id) || {}).fixedDishwash) fail(d, `固定洗碗的 ${nm(id)} 被排到撤收`);
+        if (St.isFixedDishwashAllDay(St.memberById(id) || {})) fail(d, `三餐都固定洗碗的 ${nm(id)} 被排到撤收`);
       });
       const ladderHit = [desired.breakfast, desired.lunch, desired.dinner].join('/');
       if (desired.breakfast + desired.lunch + desired.dinner > cleanupPool.length) {

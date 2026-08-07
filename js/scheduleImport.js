@@ -13,38 +13,48 @@ window.App = window.App || {};
 (function () {
   "use strict";
 
-  /** 顯示用標籤 → 班表欄位。抬便當是規則不是名單，所以不收。 */
-  const SERVING_LABEL_TO_KEY = {
-    打飯: "rice",
-    打菜: "serveDish",
-    蓋便當: "lid",
-    計數: "count",
-    "抬飲料＋包餐盒": "drinks",
-    抬飲料: "drinks",
-    包餐盒: "boxing",
-  };
+  /*
+   * 顯示用標籤 → 班表欄位。抬便當是規則不是名單，所以不收。
+   *
+   * ⚠️ 這幾張表**不要手寫**，一律從 state.js 的 DUTY_LABELS／DUTY_SHORT_LABELS 反推。
+   * 以前是手寫的，標籤改過之後對照表沒跟上——「包餐盒」改叫「包便當」、掃廁所加上
+   * 「（0900、2100）」——貼回來的班表就會**靜默漏掉**那幾行（parseMealText 查不到 key
+   * 是直接 return，不會報錯），鎖定的那天於是少了一批人。改成反推之後，
+   * 以後標籤怎麼改都跟得上。
+   *
+   * 括號裡的補充說明（「抬飲料（抬完包便當）」「計數（兼蓋便當）」「換水（早上撤收完）」）
+   * 一律先去掉再比對，所以同一個欄位不管標題怎麼加註都認得。
+   */
+  function normalizeLabel(label) {
+    return String(label || "")
+      .replace(/[（(].*?[)）]/g, "")
+      .trim();
+  }
 
-  const DUTY_LABEL_TO_KEY = {
-    洗碗: "dishwash",
-    廚餘: "foodwaste",
-    擦桌子: "wipe",
-    清地板收垃圾: "floor",
-    清地板: "floor",
-    送便當: "delivery",
-    撤收: "cleanup",
-  };
+  /**
+   * @param {string[]} keys - 要收的欄位
+   * @param {object} labelTable - DUTY_LABELS 或 DUTY_SHORT_LABELS
+   * @param {object} [aliases] - 舊班表上用過的說法（標籤改名前貼出去的那些）
+   */
+  function buildLabelIndex(keys, labelTable, aliases) {
+    const index = {};
+    Object.keys(aliases || {}).forEach((label) => (index[normalizeLabel(label)] = aliases[label]));
+    keys.forEach((key) => {
+      const label = labelTable[key];
+      if (label) index[normalizeLabel(label)] = key;
+    });
+    return index;
+  }
 
-  const DAILY_LABEL_TO_KEY = {
-    採買: "shopping",
-    "掃廁所（早上9點）": "toilet",
-    掃廁所: "toilet",
-    "換水（早上撤收完）": "water",
-    換水: "water",
-    "抬洗衣籃上來（下午）": "laundryUp",
-    抬洗衣籃上來: "laundryUp",
-    "抬洗衣籃下去（睡前）": "laundryDown",
-    抬洗衣籃下去: "laundryDown",
-  };
+  // 標籤改名前已經公布出去的說法，還是要讀得回來
+  const LEGACY_ALIASES = { 包餐盒: "boxing", "抬飲料＋包餐盒": "drinks", 清地板: "floor" };
+
+  const MEAL_DUTY_KEYS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "cleanup"];
+
+  const St0 = window.App.State;
+  const SERVING_LABEL_TO_KEY = buildLabelIndex(St0.SERVING_ROWS, St0.DUTY_LABELS, LEGACY_ALIASES);
+  const DUTY_LABEL_TO_KEY = buildLabelIndex(MEAL_DUTY_KEYS, St0.DUTY_LABELS, LEGACY_ALIASES);
+  const DAILY_LABEL_TO_KEY = buildLabelIndex(St0.DAILY_DUTY_ROWS, St0.DUTY_LABELS, LEGACY_ALIASES);
 
   const MEAL_BY_LABEL = { 早餐: "breakfast", 中餐: "lunch", 晚餐: "dinner" };
 
@@ -111,6 +121,7 @@ window.App = window.App || {};
     let section = null; // "serving" | "duty" | null
     let meal = null; // breakfast/lunch/dinner，null 代表【全日】
     let sawAnything = false;
+    const seenMealHeaders = new Set();
 
     String(text || "")
       .split(/\r?\n/)
@@ -125,6 +136,7 @@ window.App = window.App || {};
             meal = null;
           } else if (MEAL_BY_LABEL[label]) {
             meal = MEAL_BY_LABEL[label];
+            seenMealHeaders.add(meal);
             const dishes = mealHeader[2].match(/(\d+)\s*菜/);
             if (dishes) override.meals[meal].dishes = Number(dishes[1]);
           } else {
@@ -144,10 +156,12 @@ window.App = window.App || {};
         if (!parsed) return; // 標題列（「8/5（三） 勤務班表」）之類的，跳過
 
         const { label, value } = parsed;
+        // 括號裡是補充說明（「抬飲料（抬完包便當）」），比對前先拿掉
+        const plain = normalizeLabel(label);
         const context = `${meal ? window.App.State.MEAL_LABELS[meal] : "全日"} ${label}`;
 
         if (meal === null) {
-          const key = DAILY_LABEL_TO_KEY[label];
+          const key = DAILY_LABEL_TO_KEY[plain];
           if (!key) return;
           override.daily[key] = resolveNames(value, nameIndex, errors, context);
           sawAnything = true;
@@ -155,14 +169,14 @@ window.App = window.App || {};
         }
 
         if (section === "serving") {
-          const key = SERVING_LABEL_TO_KEY[label];
+          const key = SERVING_LABEL_TO_KEY[plain];
           if (!key) return;
           override.meals[meal].serving[key] = resolveNames(value, nameIndex, errors, context);
           sawAnything = true;
           return;
         }
 
-        const key = DUTY_LABEL_TO_KEY[label];
+        const key = DUTY_LABEL_TO_KEY[plain];
         // 抬便當上車、上樓寫的是規則不是名單，本來就不用讀
         if (!key) return;
         override.meals[meal][key] = resolveNames(value, nameIndex, errors, context);
@@ -191,12 +205,38 @@ window.App = window.App || {};
           seenDuty[id] = k;
         });
       });
-      if (!Object.keys(data.serving).length && !Object.keys(seenDuty).length) {
+      /*
+       * 標題出現了卻一行都沒讀到，才值得提醒——那通常是只貼了一半。
+       * 那天本來就沒有的餐（8/14 只吃早餐）標題不會出現，不該跳警告。
+       */
+      if (seenMealHeaders.has(mealKey) && !mealHasContent(data)) {
         warnings.push(`${mealLabel} 這一餐沒有讀到任何內容。`);
       }
     });
 
+    pruneEmptyMeals(override);
     return { ok: errors.length === 0, override: errors.length ? null : override, errors, warnings };
+  }
+
+  const MEAL_CONTENT_KEYS = MEAL_DUTY_KEYS.concat(["carryVehicle", "carryUpstairs"]);
+  function mealHasContent(data) {
+    if (!data) return false;
+    const serving = data.serving || {};
+    if (Object.keys(serving).some((role) => (serving[role] || []).length)) return true;
+    return MEAL_CONTENT_KEYS.some((k) => (data[k] || []).length);
+  }
+
+  /**
+   * 一行都沒讀到的餐別要整個拿掉，不能留一個空殼。
+   *
+   * 排班引擎只看「這一餐有沒有 override」就決定要不要照鎖定的內容走，空殼是 truthy，
+   * 會被當成「這一餐鎖定的結果就是沒有人」，整餐洗成空白。
+   * 只貼了早餐那一段、或是 8/14 這種只有一餐的日子，都會踩到。
+   */
+  function pruneEmptyMeals(override) {
+    Object.keys(override.meals).forEach((meal) => {
+      if (!mealHasContent(override.meals[meal])) delete override.meals[meal];
+    });
   }
 
   function nameOf(members, id) {
@@ -215,32 +255,12 @@ window.App = window.App || {};
    *       另：抬洗衣籃上來
    * 讀進來之後再「翻面」成依勤務的名單。
    */
-  const SHORT_SERVING_TO_KEY = {
-    打飯: "rice",
-    打菜: "serveDish",
-    蓋便當: "lid",
-    計數: "count",
-    抬飲料: "drinks",
-    包餐盒: "boxing",
-  };
-
-  const SHORT_DUTY_TO_KEY = {
-    洗碗: "dishwash",
-    廚餘: "foodwaste",
-    擦桌子: "wipe",
-    清地板: "floor",
+  // 一樣從 DUTY_SHORT_LABELS 反推，不要手寫（理由見上面 buildLabelIndex 的說明）
+  const SHORT_SERVING_TO_KEY = buildLabelIndex(St0.SERVING_ROWS, St0.DUTY_SHORT_LABELS, LEGACY_ALIASES);
+  const SHORT_DUTY_TO_KEY = buildLabelIndex(MEAL_DUTY_KEYS, St0.DUTY_SHORT_LABELS, {
     清地板收垃圾: "floor",
-    送便當: "delivery",
-    撤收: "cleanup",
-  };
-
-  const SHORT_DAILY_TO_KEY = {
-    換水: "water",
-    掃廁所: "toilet",
-    抬洗衣籃上來: "laundryUp",
-    抬洗衣籃下去: "laundryDown",
-    採買: "shopping",
-  };
+  });
+  const SHORT_DAILY_TO_KEY = buildLabelIndex(St0.DAILY_DUTY_ROWS, St0.DUTY_SHORT_LABELS, LEGACY_ALIASES);
 
   const MEAL_BY_HEAD = { 早: "breakfast", 中: "lunch", 晚: "dinner" };
 
@@ -317,8 +337,14 @@ window.App = window.App || {};
           return;
         }
         if (mealNote) {
-          // 「早：已離營」「早：採買」——那一餐沒有勤務，跳過
+          // 「早：已離營」「早：採買」——那一餐沒有勤務
           currentMeal = MEAL_BY_HEAD[mealNote[1]];
+          /*
+           * 「依個人」的版面不會另外列一行採買名單（早、中那兩格已經寫「採買」了），
+           * 所以採買的人只能從這裡撿回來。少了這一段，用依個人的文字鎖定那天
+           * 會把採買名單洗成空的——而採買的人早、中整個不排，名單一沒了整天就變了。
+           */
+          if (currentId && /採買/.test(mealNote[2])) push(override.daily, "shopping", currentId);
           return;
         }
 
@@ -365,6 +391,8 @@ window.App = window.App || {};
       override.meals[meal].dishes = Math.ceil(serveDish / 2);
     });
 
+    // 那天沒有的餐（8/14 只吃早餐）不能留空殼，不然那一餐會被鎖成空白
+    pruneEmptyMeals(override);
     return { ok: errors.length === 0, override: errors.length ? null : override, errors, warnings };
   }
 

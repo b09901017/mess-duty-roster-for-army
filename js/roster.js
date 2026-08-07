@@ -20,12 +20,20 @@ window.App = window.App || {};
       cohort,
       seq,
       joinDate: null,
+      joinMeal: null,
       dischargeDate: null,
       leaveMode: window.App.State.LEAVE_AFTER_LUNCH,
       fixedRole: null,
       servingRole: null,
+      servingRank: 1,
       skipLaundry: false,
       skipDinnerCleanup: false,
+      // 新增的人預設什麼都照輪替；這些欄位一定要給，不然名冊那幾個下拉會抓不到值
+      skipWater: false,
+      fixedDishwashMeals: [],
+      fixedFoodwasteMeals: [],
+      dutyExempt: false,
+      carryGroup: null,
     });
     state.dutyCounts[id] = window.App.State.emptyDutyCount();
     window.App.State.save();

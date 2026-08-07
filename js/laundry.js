@@ -7,6 +7,9 @@
  *   - 輪替第一天只有抬下去，沒有籃子要抬上來。
  *   - 送便當的兩位也要一起輪（使用者確認過，每個人都要抬上抬下各一次）。
  *   - 名冊上勾了「不排洗衣籃」的人（招員五位）不進輪替；旅部連要輪，順序接在 263 後面。
+ *   - 勾了「只排掃廁所」的人（愷宸）不做任何勤務，當然也不抬洗衣籃。
+ *     三餐的勤務是靠 computeDay 先把他從 dayMembers 濾掉擋住的，但洗衣籃拿的是
+ *     整份名冊（輪替進度需要一個含已退伍的人、不會變動的座標系），所以要自己擋。
  *   - 抬上來是下午、抬下去是睡前，所以退伍當天的人一律不排（用 meal="dinner" 判斷在不在營）。
  *
  * 進度用「上一組最後一位是誰」記住，而不是用「名冊第幾個位置」。
@@ -37,7 +40,7 @@ window.App = window.App || {};
       return { up: [], down: [], newLaundryState: laundryState, warnings };
     }
 
-    const order = canonicalOrder(allMembers).filter((m) => !m.skipLaundry);
+    const order = canonicalOrder(allMembers).filter((m) => !m.skipLaundry && !m.dutyExempt);
     // 抬上來在下午、抬下去在睡前，都是「晚上還在不在」的問題
     const isActive = (m) => window.App.State.isActiveOn(m, dateStr, "dinner");
     const activeIds = new Set(order.filter(isActive).map((m) => m.id));

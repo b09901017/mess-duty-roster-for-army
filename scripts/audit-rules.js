@@ -350,6 +350,21 @@ const chromium = loadChromium();
       });
       const waterDup = water.filter((x, i) => water.indexOf(x) !== i);
       if (waterDup.length) fail(d, `換水重複排到：${names([...new Set(waterDup)])}`);
+      /*
+       * 不能有人連兩天換水（使用者指定）。比對的是「上一個排班日」而不是日曆上的昨天，
+       * 因為中間可能有沒排的日子。鎖定的日子也要算進來——8/6 是鎖定的，
+       * 8/7 照樣不能跟它重複（進度會從鎖定的內容接下去）。
+       * 真的湊不出來時程式會放寬並跳警告，那種情況就不算錯。
+       */
+      const wIdx = dates.indexOf(d);
+      if (wIdx > 0 && water.length) {
+        const prevWater = S.schedules[dates[wIdx - 1]].daily.water || [];
+        const backToBack = water.filter(id => prevWater.includes(id));
+        const relaxWarned = (sc.warnings || []).some(w => w.indexOf('只好連兩天') !== -1);
+        if (backToBack.length && !relaxWarned) {
+          fail(d, `換水連兩天排到同一個人：${names(backToBack)}（上一個排班日 ${dates[wIdx - 1]}）`);
+        }
+      }
 
       // ── 掃廁所：早上9點、人工指定，程式只負責照抄與擋掉不合理的指定 ──
       const toilet = sc.daily.toilet || [];

@@ -225,6 +225,7 @@ const p = await b.newPage({ viewport: { width: 375, height: 1200 } });
 | 用「有沒有加入日期」判斷是不是招員 | `isNewcomer = !!joinDate` 這種推斷會誤傷——8/10 補進來的新人也有加入日期，一被當成招員，免排洗衣籃／晚上撤收／換水全部跟著跑掉。改用序號明確列出（`RECRUIT_SEQS`） |
 | `dutyExempt` 只在 `computeDay` 擋 | 三餐的勤務是靠 dayMembers 濾掉擋住的，但**洗衣籃拿的是整份名冊**（輪替進度要一個不會變動的座標系），所以 `laundry.js` 要自己擋一次。以前沒擋，只是剛好被「愷宸有 joinDate 所以 skipLaundry」蓋住，改名冊判斷之後就露出來了 |
 | 手寫「顯示標籤 → 欄位」的對照表 | `scheduleImport.js` 以前是手寫的，標籤改名（包餐盒→包便當、掃廁所加時段）之後沒跟上，貼回來鎖定會**靜默漏掉**那幾行（查不到 key 直接 return，不報錯）。一律用 `buildLabelIndex()` 從 `DUTY_LABELS` 反推，括號裡的補充說明比對前先去掉 |
+| 鎖定的日子忘記推進輪替進度 | 洗衣籃（`lastDown`）和洗碗（`washNextStartId`）都有從 override 接續，換水漏了 → 隔天從隊伍頭重來，柏宇 8/6、8/7 連兩天。**每加一項有輪替進度的勤務，都要回頭看 `computeDay` 的 override 區塊有沒有一起推進** |
 | 讓 override 留下空的餐別 | `computeDay` 只看「這一餐有沒有 override」，空殼是 truthy → 整餐被鎖成空白。只貼一半、或 8/14 這種只有一餐的日子都會踩到，所以 `pruneEmptyMeals()` 要把沒讀到內容的餐別整個刪掉 |
 
 ---

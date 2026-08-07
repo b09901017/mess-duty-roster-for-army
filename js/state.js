@@ -562,9 +562,13 @@ window.App = window.App || {};
     return { lastAssignedId: null, lastDown: [] };
   }
 
-  /** 換水的輪替進度，一樣只記「上一組最後一位是誰」 */
+  /*
+   * 換水的輪替進度。
+   *   lastAssignedId  上一組最後一位是誰（下一天從他的下一位接著排）
+   *   lastIds         上一個排班日換水的那五位——「不能連兩天」要靠它擋
+   */
   function defaultWaterState() {
-    return { lastAssignedId: null };
+    return { lastAssignedId: null, lastIds: [] };
   }
 
   // 採買只做到這一天為止（含）。8/3 是最後一次，8/4 起就不用採買了。

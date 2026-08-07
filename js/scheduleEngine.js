@@ -341,6 +341,12 @@ window.App = window.App || {};
     let waterDay = { ids: [], newWaterState: snapshot.waterState, warnings: [] };
     if (waterOverride) {
       waterDay.ids = override.daily.water.slice();
+      /*
+       * 鎖定的日子也要把輪替進度往前推，跟洗衣籃、洗碗一樣。
+       * 少了這一步，隔天會從隊伍頭重新開始——8/6 鎖定版換水是 261-7、08、263-1、2、3，
+       * 而 8/7 又從 261-3 排起，柏宇就會連兩天換水。
+       */
+      waterDay.newWaterState = window.App.WaterSchedule.advanceWaterState(snapshot.waterState, waterDay.ids);
     } else if (dateStr >= St.WATER_START) {
       waterDay = window.App.WaterSchedule.computeWaterDay(
         snapshot.waterState,

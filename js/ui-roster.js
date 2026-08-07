@@ -44,7 +44,7 @@ window.App.UI = window.App.UI || {};
           </select>
         </td>
         <td data-label="狀態">${statusChip}</td>
-        <td data-label="免排／固定">
+        <td data-label="免排">
           <label class="tick"><input type="checkbox" class="skip-laundry" data-id="${m.id}" ${
             m.skipLaundry ? "checked" : ""
           }> 洗衣籃</label>
@@ -54,12 +54,17 @@ window.App.UI = window.App.UI || {};
           <label class="tick"><input type="checkbox" class="skip-water" data-id="${m.id}" ${
             m.skipWater ? "checked" : ""
           }> 換水</label>
-          <label class="tick"><input type="checkbox" class="fixed-dishwash" data-id="${m.id}" ${
-            m.fixedDishwash ? "checked" : ""
-          }> 🍽️ 固定洗碗</label>
           <label class="tick"><input type="checkbox" class="duty-exempt" data-id="${m.id}" ${
             m.dutyExempt ? "checked" : ""
           }> 🚻 只排掃廁所</label>
+        </td>
+        <td data-label="固定勤務">
+          <select class="fixed-duty-select" data-id="${m.id}">
+            ${St.FIXED_DUTY_PRESETS.map(
+              (p) =>
+                `<option value="${p.key}"${St.fixedDutyPresetOf(m) === p.key ? " selected" : ""}>${p.label}</option>`
+            ).join("")}
+          </select>
         </td>
         <td data-label="抬便當">
           <select class="carry-group-select" data-id="${m.id}">
@@ -133,13 +138,15 @@ window.App.UI = window.App.UI || {};
           加入日期留空＝一開始就在；離開日期留空＝還在班。離開方式分兩種：
           <strong>退伍</strong>＝當天早餐、中餐照排、晚上才離營；<strong>退出</strong>（退出打飯班、調離）＝當天早上就不排了。
           「免排」可以個別勾掉抬洗衣籃、晚上的撤收與換水（招員五位預設三個都勾起來）。
+          「固定勤務」是指定某幾餐固定做某一項、不進那一項的輪替——招員五位是
+          <strong>早晚洗碗 ＋ 中午廚餘</strong>；洗碗的人那一餐不排撤收，廚餘沒有這條，所以他們中午照樣要排撤收。
           日期都可以先預填未來的，方便一次排完整個梯期。
         </p>`
             : ""
         }
         <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排／固定</th><th>抬便當</th><th>打菜固定角色</th><th>操作</th></tr></thead>
+          <thead><tr><th>序號</th><th>姓名</th><th>加入日期</th><th>離開日期</th><th>狀態</th><th>免排</th><th>固定勤務</th><th>抬便當</th><th>打菜固定角色</th><th>操作</th></tr></thead>
           <tbody>${c.list.map((m) => memberRow(m, today)).join("") || emptyRow()}</tbody>
         </table>
         </div>
@@ -158,7 +165,7 @@ window.App.UI = window.App.UI || {};
   }
 
   function emptyRow() {
-    return `<tr><td colspan="8" class="empty-state">尚無人員</td></tr>`;
+    return `<tr><td colspan="10" class="empty-state">尚無人員</td></tr>`;
   }
 
   function bindEvents() {
@@ -219,12 +226,13 @@ window.App.UI = window.App.UI || {};
     });
 
     /*
-     * 「固定洗碗」＝三餐都洗碗、不進輪替，也不做廚餘/擦桌子/清地板/撤收，
-     * 打菜流程裡只做打菜。招員五位預設勾起來。
+     * 「固定勤務」＝這個人哪幾餐固定做哪一項，不進那一項的輪替。
+     * 招員五位是「早晚洗碗 ＋ 中午廚餘」。洗碗的人那一餐不排撤收，
+     * 但廚餘沒有這條，所以他們中午做完廚餘照樣要排撤收。
      */
-    root.querySelectorAll(".fixed-dishwash").forEach((box) => {
-      box.addEventListener("change", () => {
-        window.App.Roster.updateMember(box.dataset.id, { fixedDishwash: box.checked });
+    root.querySelectorAll(".fixed-duty-select").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        window.App.Roster.updateMember(sel.dataset.id, window.App.State.fixedDutyPatchFor(sel.value));
         window.App.ScheduleEngine.rebuildAll();
         render();
         rerenderAll();

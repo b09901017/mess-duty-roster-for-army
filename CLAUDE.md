@@ -132,8 +132,8 @@
 | `js/state.js` | **所有常數、名冊種子、規則參數、localStorage、遷移**。要改規則多半從這裡開始 |
 | `js/scheduleEngine.js` | `computeDay`（純計算）、`rebuildAll`（重播）、`previewDay`／`commitDay`／`uncommitDay` |
 | `js/minCostFlow.js` | 最小成本最大流，撤收與雜項勤務共用 |
-| `js/washSchedule.js` | 洗碗單一佇列 |
-| `js/otherDuties.js` | 廚餘／擦桌子／清地板（三項一起分） |
+| `js/washSchedule.js` | 洗碗：`fixedDishwashMeals` 指定的人先進，其餘走單一佇列 |
+| `js/otherDuties.js` | 廚餘／擦桌子／清地板（三項一起分；`fixedFoodwasteMeals` 的人先佔位） |
 | `js/cleanupSchedule.js` | 撤收（含人數階梯與容量壓縮） |
 | `js/servingLine.js` | 打菜流程（含讓步順序與正取／候補） |
 | `js/laundry.js` | 洗衣籃 |
@@ -222,6 +222,10 @@ const p = await b.newPage({ viewport: { width: 375, height: 1200 } });
 | LINE 驗簽章失敗 | Vercel 會先 parse body 導致 stream 是空的，`readRawBody` 要試四種取法 |
 | 用 RGB 距離判斷卡片配色 | 會低估色相差異，要用 **CIE Lab ΔE** |
 | 寫死三餐 | 8/14 只吃早餐，用 `State.mealsOn(date)` / `TextFormat.mealKeysOf()` |
+| 用「有沒有加入日期」判斷是不是招員 | `isNewcomer = !!joinDate` 這種推斷會誤傷——8/10 補進來的新人也有加入日期，一被當成招員，免排洗衣籃／晚上撤收／換水全部跟著跑掉。改用序號明確列出（`RECRUIT_SEQS`） |
+| `dutyExempt` 只在 `computeDay` 擋 | 三餐的勤務是靠 dayMembers 濾掉擋住的，但**洗衣籃拿的是整份名冊**（輪替進度要一個不會變動的座標系），所以 `laundry.js` 要自己擋一次。以前沒擋，只是剛好被「愷宸有 joinDate 所以 skipLaundry」蓋住，改名冊判斷之後就露出來了 |
+| 手寫「顯示標籤 → 欄位」的對照表 | `scheduleImport.js` 以前是手寫的，標籤改名（包餐盒→包便當、掃廁所加時段）之後沒跟上，貼回來鎖定會**靜默漏掉**那幾行（查不到 key 直接 return，不報錯）。一律用 `buildLabelIndex()` 從 `DUTY_LABELS` 反推，括號裡的補充說明比對前先去掉 |
+| 讓 override 留下空的餐別 | `computeDay` 只看「這一餐有沒有 override」，空殼是 truthy → 整餐被鎖成空白。只貼一半、或 8/14 這種只有一餐的日子都會踩到，所以 `pruneEmptyMeals()` 要把沒讀到內容的餐別整個刪掉 |
 
 ---
 

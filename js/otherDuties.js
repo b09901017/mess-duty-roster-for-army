@@ -26,15 +26,48 @@ window.App = window.App || {};
    * @param {object[]} pool - 該餐可用人員（已排除當餐洗碗、固定送便當）
    * @param {object} dutyCounts - { [memberId]: { foodwaste, wipe, floor, ... } }
    * @param {{foodwaste:number, wipe:number, floor:number}} sizeConfig
-   * @returns {{foodwaste:string[], floor:string[], wipe:string[]}}
+   * @param {{foodwaste?:string[], wipe?:string[], floor?:string[]}} [fixedByDuty]
+   *        那一餐固定要做某一項的人（招員中午固定廚餘）。他們先佔位，
+   *        剩下的名額才丟進流量給大家輪。
+   * @returns {{foodwaste:string[], floor:string[], wipe:string[], overflow:object}}
    */
-  function assignOtherDuties(pool, dutyCounts, sizeConfig) {
+  function assignOtherDuties(pool, dutyCounts, sizeConfig, fixedByDuty) {
     const result = {};
-    DUTY_ORDER.forEach((k) => (result[k] = []));
+    const overflow = {};
+    DUTY_ORDER.forEach((k) => {
+      result[k] = [];
+      overflow[k] = 0;
+    });
 
-    const people = pool.slice().sort(stableCompare);
+    let people = pool.slice().sort(stableCompare);
+    // 名冊順序的座標系，最後要照它把每一項的名單排整齊
+    const orderOf = {};
+    people.forEach((m, i) => (orderOf[m.id] = i));
     const needs = DUTY_ORDER.map((k) => sizeConfig[k] || 0);
-    if (!people.length || !needs.some((n) => n > 0)) return result;
+
+    /*
+     * 固定的人先進去。超過那一項名額的部分擋下來回報（overflow），
+     * 由上層決定要不要提醒——名額比固定人數還少的話代表對照表跟不上人數了。
+     */
+    if (fixedByDuty) {
+      DUTY_ORDER.forEach((k, j) => {
+        const wanted = (fixedByDuty[k] || []).filter((id) => orderOf[id] != null);
+        const take = wanted.slice(0, needs[j]);
+        overflow[k] = wanted.length - take.length;
+        if (!take.length) return;
+        const taken = new Set(take);
+        result[k] = take.slice();
+        needs[j] -= take.length;
+        people = people.filter((m) => !taken.has(m.id));
+      });
+    }
+
+    const finish = () => {
+      DUTY_ORDER.forEach((k) => result[k].sort((a, b) => orderOf[a] - orderOf[b]));
+      result.overflow = overflow;
+      return result;
+    };
+    if (!people.length || !needs.some((n) => n > 0)) return finish();
 
     /*
      * 節點：0 = 源點，1..n = 人，n+1..n+3 = 三項勤務，n+4 = 匯點。
@@ -72,8 +105,8 @@ window.App = window.App || {};
       });
     });
 
-    // 名單照名冊順序輸出，看起來才整齊（people 已排序，所以直接照加入順序就是）
-    return result;
+    // 固定的那幾位跟輪替出來的混在一起，最後照名冊順序排一次才整齊
+    return finish();
   }
 
   window.App.OtherDuties = { assignOtherDuties, stableCompare, DUTY_ORDER };

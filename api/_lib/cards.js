@@ -2,10 +2,11 @@
  * 把一天的班表組成 LINE Flex Message 的一組卡片（可左右滑動）。
  *
  * 順序（使用者指定）：
+ *   打飯流程一張（固定內容，不分日期——先講清楚一餐怎麼跑，再看今天誰做什麼）
+ *   全日勤務一張（採買、掃廁所、換水、洗衣籃這些不分餐別的事，早點看到比較好安排）
  *   早餐 → 中餐 → 晚餐 各一張（那天沒有的餐就不發，例如 8/14 只吃早餐）
  *   261梯 01-08 ／ 263梯 01-05 ／ 263梯 06-10 ／ 招員（261梯 09-13）／ 旅部連
  *     個人分工各一張（那一組沒有人就不發）
- *   全日勤務一張
  *   公平性總覽一張（圖片 ＋「看完整」按鈕）
  *
  * 每一餐的卡片照現場動線分段：前置 → 打菜 → 抬便當 → 善後勤務 → 撤收。
@@ -33,12 +34,17 @@ const MUTED = "#9a8f84";
  *      （兩張 263 刻意用同一色，因為本來就是同一梯）
  */
 const CARD_COLORS = {
+  // 流程卡是「說明」不是「今天的名單」，所以用一個誰也不像的冷中性色跟後面整組岔開
+  flow: "#37566B",
   breakfast: "#8A6C2C",
   lunch: "#AC523B",
   dinner: "#77455E",
   daily: "#725D4B",
   fairness: "#39424D",
 };
+
+// 流程卡的細節用色：步驟編號的圓底用主色，說明文字比內文再淡一階
+const FLOW_LINE = "#e8ddd2";
 
 /** 卡片切法：from/to 是序號範圍（含頭含尾）；title 與 color 各組自己一套 */
 const PERSON_CARDS = [
@@ -80,6 +86,70 @@ function dutyRow(no, label, value, step) {
       text(`${step(no)} ${label}`, { size: "xs", color: MUTED }),
       text(value, { size: "sm", color: INK, margin: "xs" }),
     ],
+  };
+}
+
+/*
+ * 打飯流程卡。
+ *
+ * 內容是固定的（js/state.js 的 MEAL_FLOW），跟哪一天無關——放第一張是因為
+ * 「一餐怎麼跑」要先講清楚，後面幾張才是「今天誰做什麼」。
+ *
+ * 版面分兩層，兩層講同一件事、深淺不同：
+ *   上面一行  整條流程擠在一行，一眼掃完（前置 › 打菜 › … › 撤收）
+ *   下面逐步  編號圓底 ＋ 標題 ＋ 誰做 ＋ 細項，要細看時才往下讀
+ * 每一步之間畫一條分隔線，滑的時候段落感才清楚。
+ */
+function stepBadge(no, color) {
+  return {
+    type: "box",
+    layout: "vertical",
+    width: "22px",
+    height: "22px",
+    cornerRadius: "11px",
+    backgroundColor: color,
+    justifyContent: "center",
+    alignItems: "center",
+    contents: [text(String(no), { size: "xxs", weight: "bold", color: "#ffffff", align: "center" })],
+  };
+}
+
+function flowStep(step, no, color, isLast) {
+  const right = [text(step.title, { size: "sm", weight: "bold", color: INK })];
+  if (step.who) right.push(text(step.who, { size: "xxs", color: color, margin: "xs" }));
+  step.notes.forEach((note) => right.push(text(`・${note}`, { size: "xxs", color: MUTED, margin: "xs" })));
+
+  const row = {
+    type: "box",
+    layout: "horizontal",
+    spacing: "md",
+    margin: "lg",
+    contents: [
+      { type: "box", layout: "vertical", flex: 0, width: "24px", contents: [stepBadge(no, color)] },
+      { type: "box", layout: "vertical", flex: 1, contents: right },
+    ],
+  };
+  return isLast ? [row] : [row, { type: "separator", margin: "lg", color: FLOW_LINE }];
+}
+
+function flowBubble(App) {
+  const FLOW = App.State.MEAL_FLOW;
+  const color = CARD_COLORS.flow;
+
+  const contents = [
+    // 整條流程一行掃完；用細箭頭而不是 ➡️，一行才塞得下不折行
+    text(FLOW.map((s) => s.title).join(" › "), { size: "xs", color: color, weight: "bold" }),
+    { type: "separator", margin: "lg", color: FLOW_LINE },
+  ];
+  FLOW.forEach((step, i) => {
+    flowStep(step, i + 1, color, i === FLOW.length - 1).forEach((node) => contents.push(node));
+  });
+
+  return {
+    type: "bubble",
+    size: "giga",
+    header: header("打飯流程", "每一餐都照這個順序　·　固定內容，不分日期", color),
+    body: { type: "box", layout: "vertical", paddingAll: "14px", contents },
   };
 }
 
@@ -262,8 +332,11 @@ function buildCarousel(App, dateStr, schedule, options) {
   const opts = options || {};
   const names = App.TextFormat.displayNameMap();
 
-  const bubbles = App.TextFormat.mealKeysOf(dateStr, schedule).map((mealKey) =>
-    mealBubble(App, dateStr, schedule, mealKey, names)
+  // 先講流程，再講不分餐別的全日勤務，然後才是三餐與個人分工
+  const bubbles = [flowBubble(App), dailyBubble(App, dateStr, schedule, names)];
+
+  App.TextFormat.mealKeysOf(dateStr, schedule).forEach((mealKey) =>
+    bubbles.push(mealBubble(App, dateStr, schedule, mealKey, names))
   );
   /*
    * 沒有人的那一組就不發卡片（旅部連 8/7 起調走了）。
@@ -275,7 +348,6 @@ function buildCarousel(App, dateStr, schedule, options) {
     );
     if (has) bubbles.push(personBubble(App, dateStr, schedule, names, card));
   });
-  bubbles.push(dailyBubble(App, dateStr, schedule, names));
   if (opts.imageUrl && opts.fullUrl) {
     bubbles.push(fairnessBubble(App, dateStr, opts.cells || [], opts.imageUrl, opts.fullUrl));
   }
@@ -288,4 +360,4 @@ function buildCarousel(App, dateStr, schedule, options) {
   };
 }
 
-module.exports = { buildCarousel, PERSON_CARDS };
+module.exports = { buildCarousel, PERSON_CARDS, CARD_COLORS };

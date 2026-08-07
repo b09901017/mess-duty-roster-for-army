@@ -221,7 +221,31 @@ window.App = window.App || {};
       const deliveryIds = present.filter((m) => m.fixedRole === "delivery").map((m) => m.id);
       const excludeIds = new Set(dishwashIds.concat(deliveryIds));
       const otherPool = present.filter((m) => !excludeIds.has(m.id));
-      const otherAssign = window.App.OtherDuties.assignOtherDuties(otherPool, newDutyCounts, sizeByMeal[meal]);
+      /*
+       * 有人這一餐是固定做某一項的（招員中午固定廚餘），先讓他們佔位，
+       * 剩下的名額才丟進流量給其他人輪。
+       */
+      const fixedByDuty = {
+        foodwaste: otherPool.filter((m) => St.isFixedFoodwasteAt(m, meal)).map((m) => m.id),
+      };
+      const otherAssign = window.App.OtherDuties.assignOtherDuties(
+        otherPool,
+        newDutyCounts,
+        sizeByMeal[meal],
+        fixedByDuty
+      );
+      /*
+       * 固定要做那一項的人比名額還多，代表對照表的名額跟不上人數了。
+       * 多出來的人會被別的勤務吸收，不會沒事做，但值得講一聲。
+       */
+      Object.keys(otherAssign.overflow || {}).forEach((key) => {
+        const extra = otherAssign.overflow[key];
+        if (!extra) return;
+        warnings.push(
+          `${St.MEAL_LABELS[meal]}：固定做${St.DUTY_SHORT_LABELS[key]}的人比名額多 ${extra} 位，` +
+            `多出來的這一餐改做其他勤務。可到「勤務設定」把這一列的${St.DUTY_SHORT_LABELS[key]}人數調高。`
+        );
+      });
 
       /*
        * 抬便當分三段（使用者更新的流程）：

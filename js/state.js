@@ -8,7 +8,7 @@ window.App = window.App || {};
 
   // 名冊種子每次異動就 +1。舊資料（含從雲端還原的）rosterVersion 對不上時，
   // 會自動換上新名冊，這樣改名冊不用叫使用者清快取，也不會被雲端的舊名冊蓋回去。
-  const ROSTER_VERSION = 8;
+  const ROSTER_VERSION = 9;
 
   /*
    * 勤務人數對照表與預設菜量的版本。
@@ -133,6 +133,31 @@ window.App = window.App || {};
   const WATER_COUNT = 5;
   const WATER_START = "2026-08-06";
 
+  /*
+   * 一餐從頭到尾的流程。
+   *
+   * MEAL_SECTIONS 是「班表要印哪幾段、每段有哪幾行」，這一份則是「流程本身」——
+   * 內容固定、跟哪一天無關，給 LINE 的第一張「打飯流程」卡片用。
+   * 兩份都改的時候記得對齊，不然卡片講的順序會跟班表印的順序不一樣。
+   */
+  const MEAL_FLOW = [
+    {
+      title: "前置",
+      who: "有空的都幫忙",
+      notes: ["搬各連的箱子出來", "把地上有便當盒的箱子搬到桌上", "搬菜桶上桌"],
+    },
+    { title: "打菜", who: "照班表分工", notes: ["打飯・打菜・蓋便當", "計數・抬飲料・包便當"] },
+    { title: "打自己的便當", who: "全員", notes: ["先打起來，不要先吃"] },
+    {
+      title: "抬便當",
+      who: "下車全員，上車／上樓分兩組",
+      notes: ["抬下車：隨時到、隨時搬", "抬上車／抬上樓：照班表"],
+    },
+    { title: "集合休息", who: "全員", notes: ["集合之後統一休息 10 分鐘"] },
+    { title: "善後勤務", who: "照班表分工", notes: ["洗碗・廚餘", "擦桌子・清地板收垃圾"] },
+    { title: "撤收", who: "照班表分工", notes: [] },
+  ];
+
   // 打菜流程的欄位（依實際進行順序）
   const SERVING_ROWS = ["rice", "serveDish", "lid", "count", "drinks", "boxing"];
 
@@ -254,6 +279,32 @@ window.App = window.App || {};
   const KAICHEN_RETURN_DATE = "2026-08-07";
 
   /*
+   * 廖翊滕 8/10 晚上退伍，當晚上面補一個人下來頂他的缺。
+   *
+   * 「原本翊滕之後怎麼排，這個新人就怎麼排」——不用寫特別的規則，
+   * 因為廚餘／擦桌子／清地板／撤收／打菜全部是「這項做最少次的人優先」，
+   * 新人一進來次數是 0，本來就會被優先排到，等於自動接上翊滕的工作量。
+   * 公平範圍又是按在營天數等比例算的，所以他只待四天也不會被標成偏少。
+   */
+  const REPLACEMENT_JOIN_DATE = "2026-08-10";
+  const REPLACEMENT_JOIN_MEAL = "dinner"; // 晚上才到，那天早餐、中餐還沒有他
+
+  /*
+   * 招員五位（261-9~13）的固定勤務。
+   *
+   * 使用者 8/15 改的：早、晚洗碗，中午做廚餘。
+   * 「洗碗的人那一餐不排撤收」是既有規則，但廚餘沒有這條，
+   * 所以他們早、晚不排撤收（在洗碗），中午廚餘做完照樣要排撤收。
+   *
+   * 上一版試過「三餐都洗碗」，被退回了——把 5 個人整組抽出輪替，
+   * 剩下的 12 個人要吃下全部的廚餘、擦桌子、清地板。這一版中午他們還在池子裡
+   * 而且直接吃掉大部分廚餘名額，剛好避開那個問題。
+   */
+  const RECRUIT_SEQS = [9, 10, 11, 12, 13];
+  const RECRUIT_DISHWASH_MEALS = ["breakfast", "dinner"];
+  const RECRUIT_FOODWASTE_MEALS = ["lunch"];
+
+  /*
    * 離開的方式有兩種，對「最後一天」的處理不一樣：
    *   afterLunch（退伍）：當天早餐、中餐照排，晚上才離營。
    *   immediate（退出打飯班／調離）：當天早上就不在了，整天都不排。
@@ -288,7 +339,7 @@ window.App = window.App || {};
   }
 
   function seedMembers() {
-    // [姓名, 離開日, 離開方式, 加入日]
+    // [姓名, 離開日, 離開方式, 加入日, 報到那天從哪一餐開始]
     const r261 = [
       // 8/4 退出打飯班，8/7 早上回來，但只掃廁所、不做任何勤務（見 dutyExempt）
       ["李愷宸", null, LEAVE_AFTER_LUNCH, KAICHEN_RETURN_DATE],
@@ -305,6 +356,8 @@ window.App = window.App || {};
       ["文軍諺", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
       ["王傑立", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
       ["簡宏穎", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
+      // 8/10 晚上補下來頂廖翊滕缺的那位。名字確定之後到「名冊」分頁改掉就好。
+      ["新人", null, LEAVE_AFTER_LUNCH, REPLACEMENT_JOIN_DATE, REPLACEMENT_JOIN_MEAL],
     ];
     const r263 = [
       ["陳東霖", null, LEAVE_AFTER_LUNCH],
@@ -323,30 +376,33 @@ window.App = window.App || {};
     const brigade = ["朱醒醒", "林玟圻", "陳景琪", "弘"];
 
     const members = [];
-    r261.forEach(([name, dischargeDate, leaveMode, joinDate], idx) => {
+    r261.forEach(([name, dischargeDate, leaveMode, joinDate, joinMeal], idx) => {
       const seq = idx + 1;
-      const isNewcomer = !!joinDate;
+      /*
+       * 招員是 261-9~13 這五位，用序號認人。
+       * （以前是用「有沒有填加入日期」認的，8/10 補進來的新人一樣有加入日期，
+       *   再用那個判斷會把他也當成招員，免排洗衣籃／晚上撤收／換水全部跟著跑掉。）
+       */
+      const isRecruit = RECRUIT_SEQS.indexOf(seq) !== -1;
       members.push({
         id: `261-${seq}`,
         name,
         cohort: "261",
         seq,
         joinDate: joinDate || null,
+        joinMeal: joinMeal || null,
         dischargeDate: dischargeDate || null,
         leaveMode: leaveMode,
         fixedRole: seq === 7 || seq === 8 ? "delivery" : null,
         servingRole: seedServingRole(`261-${seq}`),
         servingRank: seedServingRank(`261-${seq}`),
-        skipLaundry: isNewcomer,
-        // 招員唯一保留的限制：不排晚上撤收。早餐、中餐的撤收照排。
-        skipDinnerCleanup: isNewcomer,
-        skipWater: isNewcomer,
-        /*
-         * 「固定洗碗」的做法試過一輪就取消了：旅部連調走之後只剩 19 人，
-         * 把 5 個人整組抽出輪替，剩下的 12 個人要吃下全部的廚餘、擦桌子、清地板，
-         * 而且撤收只剩 14 個人排得動、每餐從 7 人掉到 5 人。改回打散照輪。
-         */
-        fixedDishwash: false,
+        skipLaundry: isRecruit,
+        // 招員早、晚在洗碗（洗碗的人本來就不排撤收），這條擋的是「中午以外」的晚餐
+        skipDinnerCleanup: isRecruit,
+        skipWater: isRecruit,
+        // 招員：早、晚固定洗碗，中午固定廚餘。其餘的人兩個都是空的、照輪替
+        fixedDishwashMeals: isRecruit ? RECRUIT_DISHWASH_MEALS.slice() : [],
+        fixedFoodwasteMeals: isRecruit ? RECRUIT_FOODWASTE_MEALS.slice() : [],
         // 愷宸只掃廁所，不做任何勤務，也不算進當天的出勤人數
         dutyExempt: seq === 1,
         carryGroup: null,
@@ -360,6 +416,7 @@ window.App = window.App || {};
         cohort: "263",
         seq,
         joinDate: null,
+        joinMeal: null,
         dischargeDate: dischargeDate || null,
         leaveMode: leaveMode,
         fixedRole: null,
@@ -368,7 +425,8 @@ window.App = window.App || {};
         skipLaundry: false,
         skipDinnerCleanup: false,
         skipWater: false,
-        fixedDishwash: false,
+        fixedDishwashMeals: [],
+        fixedFoodwasteMeals: [],
         dutyExempt: false,
         carryGroup: null,
       });
@@ -390,12 +448,75 @@ window.App = window.App || {};
         skipLaundry: false,
         skipDinnerCleanup: false,
         skipWater: false,
-        fixedDishwash: false,
+        fixedDishwashMeals: [],
+        fixedFoodwasteMeals: [],
         dutyExempt: false,
         carryGroup: null,
       });
     });
     return members;
+  }
+
+  /*
+   * 「這個人這一餐固定做某項勤務」的共用查詢。
+   *
+   * 存的是餐別陣列而不是布林值，因為招員的安排是「早、晚洗碗，中午廚餘」——
+   * 布林的「固定洗碗」表達不出「只有這兩餐」。空陣列＝這個人照輪替，
+   * 名冊沒有這兩個欄位的舊資料在 migrate 裡會補成空陣列。
+   */
+  function fixedMealsOf(member, key) {
+    const list = member && member[key];
+    return Array.isArray(list) ? list : [];
+  }
+  function fixedDishwashMealsOf(member) {
+    return fixedMealsOf(member, "fixedDishwashMeals");
+  }
+  function fixedFoodwasteMealsOf(member) {
+    return fixedMealsOf(member, "fixedFoodwasteMeals");
+  }
+  function isFixedDishwashAt(member, meal) {
+    return fixedDishwashMealsOf(member).indexOf(meal) !== -1;
+  }
+  function isFixedFoodwasteAt(member, meal) {
+    return fixedFoodwasteMealsOf(member).indexOf(meal) !== -1;
+  }
+  function hasFixedDishwash(member) {
+    return fixedDishwashMealsOf(member).length > 0;
+  }
+  function hasFixedFoodwaste(member) {
+    return fixedFoodwasteMealsOf(member).length > 0;
+  }
+  /** 三餐都固定洗碗＝整天都排不到撤收，撤收的人數階梯要把這種人整個扣掉 */
+  function isFixedDishwashAllDay(member) {
+    const meals = fixedDishwashMealsOf(member);
+    return MEAL_KEYS.every((m) => meals.indexOf(m) !== -1);
+  }
+
+  /*
+   * 名冊那一欄要呈現的組合。逐餐勾六個格子在手機上按不到，
+   * 而實際會用到的就是這幾種，所以做成下拉選單，值再展開成上面那兩個陣列。
+   */
+  const FIXED_DUTY_PRESETS = [
+    { key: "", label: "（照輪替）", dishwash: [], foodwaste: [] },
+    {
+      key: "wash-bd-waste-l",
+      label: "早晚洗碗 ＋ 中午廚餘",
+      dishwash: RECRUIT_DISHWASH_MEALS,
+      foodwaste: RECRUIT_FOODWASTE_MEALS,
+    },
+    { key: "wash-all", label: "三餐都洗碗", dishwash: MEAL_KEYS, foodwaste: [] },
+  ];
+  const sameSet = (a, b) => a.length === b.length && a.every((x) => b.indexOf(x) !== -1);
+  /** 反查這個人目前是哪一種組合（對不上任何一種就回空字串） */
+  function fixedDutyPresetOf(member) {
+    const wash = fixedDishwashMealsOf(member);
+    const waste = fixedFoodwasteMealsOf(member);
+    const hit = FIXED_DUTY_PRESETS.find((p) => sameSet(p.dishwash, wash) && sameSet(p.foodwaste, waste));
+    return hit ? hit.key : "";
+  }
+  function fixedDutyPatchFor(presetKey) {
+    const preset = FIXED_DUTY_PRESETS.find((p) => p.key === presetKey) || FIXED_DUTY_PRESETS[0];
+    return { fixedDishwashMeals: preset.dishwash.slice(), fixedFoodwasteMeals: preset.foodwaste.slice() };
   }
 
   function defaultDutySizeTable() {
@@ -731,6 +852,19 @@ window.App = window.App || {};
     }
 
     /*
+     * 「固定洗碗」從布林值改成餐別陣列（招員現在是早晚洗碗＋中午廚餘）。
+     * 名冊沒換版時舊物件會原封不動留著，所以在這裡補齊欄位：
+     * 舊的 fixedDishwash:true 等於三餐都洗，其餘一律空陣列（照輪替）。
+     */
+    (merged.members || []).forEach((m) => {
+      if (!Array.isArray(m.fixedDishwashMeals)) {
+        m.fixedDishwashMeals = m.fixedDishwash ? MEAL_KEYS.slice() : [];
+      }
+      if (!Array.isArray(m.fixedFoodwasteMeals)) m.fixedFoodwasteMeals = [];
+      delete m.fixedDishwash;
+    });
+
+    /*
      * 勤務人數對照表與預設菜量有改版就換上新的。
      * 不這樣做的話，瀏覽器裡的舊表會永遠蓋過程式裡的新預設值（詳見 CONFIG_VERSION 的說明）。
      */
@@ -899,7 +1033,20 @@ window.App = window.App || {};
     mealsOn,
     mealIsOn,
     MEAL_SECTIONS,
+    MEAL_FLOW,
     MEAL_DUTY_ROWS,
+    RECRUIT_DISHWASH_MEALS,
+    RECRUIT_FOODWASTE_MEALS,
+    FIXED_DUTY_PRESETS,
+    fixedDishwashMealsOf,
+    fixedFoodwasteMealsOf,
+    isFixedDishwashAt,
+    isFixedFoodwasteAt,
+    hasFixedDishwash,
+    hasFixedFoodwaste,
+    isFixedDishwashAllDay,
+    fixedDutyPresetOf,
+    fixedDutyPatchFor,
     COHORT_ORDER,
     COHORT_LABELS,
     rosterOrder,

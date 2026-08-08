@@ -94,7 +94,7 @@ window.App.UI = window.App.UI || {};
     const today = window.App.State.todayStr();
     const deliveryMembers = window.App.Roster.getDeliveryMembers();
     const St = window.App.State;
-    // 每個梯次一張表；旅部連 8/6 中午才報到，一樣照這個流程管理
+    // 每個梯次一張表
     const cohortCards = St.COHORT_ORDER.map((cohort) => {
       const list = state.members.filter((m) => m.cohort === cohort).sort((a, b) => a.seq - b.seq);
       const activeCount = list.filter((m) => St.isActiveOn(m, today)).length;
@@ -113,8 +113,9 @@ window.App.UI = window.App.UI || {};
         <div class="row">
           <input type="text" id="new-member-name" placeholder="姓名或代號">
           <select id="new-member-cohort">
-            <option value="261">261梯</option>
-            <option value="263">263梯</option>
+            ${St.COHORT_ORDER.map(
+              (c) => `<option value="${c}">${St.COHORT_LABELS[c] || c}</option>`
+            ).join("")}
           </select>
           <button type="button" class="primary" id="add-member-btn">新增</button>
         </div>

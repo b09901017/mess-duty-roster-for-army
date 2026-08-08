@@ -8,7 +8,7 @@ window.App = window.App || {};
 
   // 名冊種子每次異動就 +1。舊資料（含從雲端還原的）rosterVersion 對不上時，
   // 會自動換上新名冊，這樣改名冊不用叫使用者清快取，也不會被雲端的舊名冊蓋回去。
-  const ROSTER_VERSION = 9;
+  const ROSTER_VERSION = 10;
 
   /*
    * 勤務人數對照表與預設菜量的版本。
@@ -21,7 +21,7 @@ window.App = window.App || {};
    * 涵蓋：勤務人數對照表、預設菜量、採買結束日。
    * 使用者自己逐日調過的菜量（menuSizes）不會被動到。
    */
-  const CONFIG_VERSION = 9;
+  const CONFIG_VERSION = 10;
 
   const DUTY_PERIOD_START = "2026-08-01";
   const DUTY_PERIOD_END = "2026-08-14";
@@ -30,7 +30,7 @@ window.App = window.App || {};
   /*
    * 公平性次數從這天開始累計。
    *
-   * 8/6 起規則整個換新（洗碗改單一佇列、撤收改固定名額、多了換水、旅部連報到），
+   * 8/6 起規則整個換新（洗碗改單一佇列、撤收改固定名額、多了換水），
    * 使用者決定之前的次數一律歸零重來，大家站在同一條起跑線。
    * 這天之前的班表照樣看得到（尤其是鎖定的 8/5），只是不計入公平性總覽。
    * 洗衣籃與洗碗的「輪到誰」不受影響，會從 8/5 接下去。
@@ -61,10 +61,14 @@ window.App = window.App || {};
 
   /*
    * 名冊的固定順序。招員是 261-9~13，所以照 cohort+seq 排就會自然接在 261-8 後面。
-   * 旅部連是 8/6 中午報到的第三個群體。
+   * 五營是 8/8 早上報到的五位。
+   *
+   * 旅部連（8/6 中午報到、8/7 早上就被調走）已經整組從名冊拿掉了——
+   * 他們只待一天，留著只會讓名冊多一張「0 現役 / 4 總數」的卡片。
+   * 8/6 鎖定的那份班表裡也一起清掉了。
    */
-  const COHORT_ORDER = ["261", "263", "新", "旅部"];
-  const COHORT_LABELS = { 261: "261 梯", 263: "263 梯", 新: "新進五位", 旅部: "旅部連" };
+  const COHORT_ORDER = ["261", "263", "五營"];
+  const COHORT_LABELS = { 261: "261 梯", 263: "263 梯", 五營: "五營" };
   function rosterOrder(a, b) {
     const ca = COHORT_ORDER.indexOf(a.cohort);
     const cb = COHORT_ORDER.indexOf(b.cohort);
@@ -72,8 +76,8 @@ window.App = window.App || {};
     return a.seq - b.seq;
   }
 
-  // 洗碗的輪替順序（使用者指定）：263 → 261 → 招員 → 旅部連。招員就是 261-9~13。
-  const WASH_COHORT_ORDER = ["263", "261", "新", "旅部"];
+  // 洗碗的輪替順序（使用者指定）：263 → 261 → 五營。
+  const WASH_COHORT_ORDER = ["263", "261", "五營"];
   function washOrder(a, b) {
     const ca = WASH_COHORT_ORDER.indexOf(a.cohort);
     const cb = WASH_COHORT_ORDER.indexOf(b.cohort);
@@ -82,10 +86,10 @@ window.App = window.App || {};
   }
 
   /*
-   * 撤收的輪替順序（使用者 8/8 指定）：**263 → 新進五位 → 261**。
-   * 跟名冊順序（261 → 263 → 新）與洗碗順序都不一樣，所以另外開一份。
+   * 撤收的輪替順序（使用者 8/8 指定）：**263 → 五營 → 261**。
+   * 跟名冊順序（261 → 263 → 五營）與洗碗順序都不一樣，所以另外開一份。
    */
-  const CLEANUP_COHORT_ORDER = ["263", "新", "261", "旅部"];
+  const CLEANUP_COHORT_ORDER = ["263", "五營", "261"];
   function cleanupOrder(a, b) {
     const ca = CLEANUP_COHORT_ORDER.indexOf(a.cohort);
     const cb = CLEANUP_COHORT_ORDER.indexOf(b.cohort);
@@ -359,18 +363,13 @@ window.App = window.App || {};
 
   // 2026/08/04 這天有一波人員異動：三位退出打飯班、261 加入五位新人。
   const CHANGE_DATE = "2026-08-04";
-  // 旅部連 4 位是 8/6「中午」報到，那天早餐還沒有他們
-  const BRIGADE_JOIN_DATE = "2026-08-06";
-  const BRIGADE_JOIN_MEAL = "lunch";
-  // 旅部連 8/7 早上被調走，只做了 8/6 一天
-  const BRIGADE_LEAVE_DATE = "2026-08-07";
   // 李愷宸 8/7 早上歸建，但只掃廁所（dutyExempt），不算進出勤人數
   const KAICHEN_RETURN_DATE = "2026-08-07";
 
   /*
    * 2026/08/08 早上的人員大異動：
    *   - 招員五位（261-9~13 丁楚祐、蔣許子宸、文軍諺、王傑立、簡宏穎）離開
-   *   - 新的五位報到（玉坤、倢睿、成堡、睿諭、宗聖），自成一個群體
+   *   - 五營五位報到（玉坤、倢睿、成堡、睿諭、宗聖）
    *   - 原本說 8/10 要下來頂廖翊滕缺的那位「新人」不會來了，直接從名冊拿掉
    *
    * 這天之後的人數是 19（＋只掃廁所、不算人頭的愷宸 ＝ 20）。
@@ -440,7 +439,7 @@ window.App = window.App || {};
       ["簡宏穎", SWAP_DATE, LEAVE_IMMEDIATE, CHANGE_DATE],
     ];
 
-    // 8/8 早上報到的五位，自成一個群體（撤收輪替時排在 263 後面、261 前面）
+    // 8/8 早上報到的五位（五營），撤收輪替時排在 263 後面、261 前面
     const rNew = ["玉坤", "倢睿", "成堡", "睿諭", "宗聖"];
     const r263 = [
       ["陳東霖", null, LEAVE_AFTER_LUNCH],
@@ -454,9 +453,6 @@ window.App = window.App || {};
       ["盧明煬", CHANGE_DATE, LEAVE_IMMEDIATE], // 退出打飯班
       ["田權楨", null, LEAVE_AFTER_LUNCH],
     ];
-
-    // 旅部連 4 位 8/6 中午報到，8/7 早上就被調走了，只做到 8/6
-    const brigade = ["朱醒醒", "林玟圻", "陳景琪", "弘"];
 
     const members = [];
     r261.forEach(([name, dischargeDate, leaveMode, joinDate, joinMeal], idx) => {
@@ -517,37 +513,14 @@ window.App = window.App || {};
     rNew.forEach((name, idx) => {
       const seq = idx + 1;
       members.push({
-        id: `新-${seq}`,
+        id: `五營-${seq}`,
         name,
-        cohort: "新",
+        cohort: "五營",
         seq,
         joinDate: SWAP_DATE,
         joinMeal: null,
         dischargeDate: null,
         leaveMode: LEAVE_AFTER_LUNCH,
-        fixedRole: null,
-        servingRole: null,
-        servingRank: 1,
-        skipLaundry: false,
-        skipDinnerCleanup: false,
-        skipWater: false,
-        fixedDishwashMeals: [],
-        fixedFoodwasteMeals: [],
-        dutyExempt: false,
-        carryGroup: null,
-      });
-    });
-    brigade.forEach((name, idx) => {
-      const seq = idx + 1;
-      members.push({
-        id: `旅部-${seq}`,
-        name,
-        cohort: "旅部",
-        seq,
-        joinDate: BRIGADE_JOIN_DATE,
-        joinMeal: BRIGADE_JOIN_MEAL,
-        dischargeDate: BRIGADE_LEAVE_DATE,
-        leaveMode: LEAVE_IMMEDIATE, // 8/7 早上起就被調走了
         fixedRole: null,
         servingRole: null,
         servingRank: 1,
@@ -657,7 +630,7 @@ window.App = window.App || {};
   }
 
   /*
-   * 洗碗改成單一佇列照號碼輪（263 → 261 → 招員 → 旅部連），
+   * 洗碗改成單一佇列照號碼輪（263 → 261 → 五營），
    * 不再分兩梯輪流當起始梯，所以只要記「下一個從誰開始」。
    */
   function defaultWashState() {
@@ -740,7 +713,7 @@ window.App = window.App || {};
   function defaultOverrides() {
     return {
       "2026-08-06": {
-        note: "8/6 已公布給大家；8/7 起旅部連調走、規則整個換新，鎖定這天不再變動",
+        note: "8/6 已公布給大家，鎖定不再變動。當天在場的旅部連四位隔天就被調走，已從名冊移除，所以這份不再列他們",
         meals: {
           breakfast: {
             dishes: 3,
@@ -766,31 +739,31 @@ window.App = window.App || {};
               lid: ["261-5","263-5"],
               count: ["261-4","263-7"],
               drinks: ["261-3","263-3"],
-              boxing: ["263-10","旅部-1","旅部-2","旅部-3","旅部-4"],
+              boxing: ["263-10"],
             },
             dishwash: ["261-9","261-10","261-11","261-12","261-13","263-3","263-4"],
-            foodwaste: ["263-1","263-2","263-5","263-7","263-8","263-10","旅部-1"],
-            wipe: ["旅部-2","旅部-3","旅部-4"],
+            foodwaste: ["263-1","263-2","263-5","263-7","263-8","263-10"],
+            wipe: [],
             floor: ["261-3","261-4","261-5","261-6"],
             delivery: ["261-7","261-8"],
-            cleanup: ["263-1","263-2","263-5","263-7","263-8","263-10","旅部-1"],
+            cleanup: ["263-1","263-2","263-5","263-7","263-8","263-10"],
           },
           dinner: {
             dishes: 5,
             serving: {
               rice: ["263-1","263-8"],
-              serveDish: ["261-9","261-10","261-11","261-12","261-13","263-5","263-10","旅部-1","旅部-2","旅部-3"],
+              serveDish: ["261-9","261-10","261-11","261-12","261-13","263-5","263-10"],
               lid: ["261-8","263-2"],
               count: ["261-4","263-7"],
               drinks: ["261-3","263-3"],
-              boxing: ["261-5","261-6","261-7","263-4","旅部-4"],
+              boxing: ["261-5","261-6","261-7","263-4"],
             },
             dishwash: ["261-9","261-10","261-11","261-12","261-13","263-5","263-7"],
-            foodwaste: ["261-6","263-8","263-10","旅部-1","旅部-2","旅部-3","旅部-4"],
+            foodwaste: ["261-6","263-8","263-10"],
             wipe: ["261-3","261-4","261-5"],
             floor: ["263-1","263-2","263-3","263-4"],
             delivery: ["261-7","261-8"],
-            cleanup: ["261-7","261-8","263-3","263-4","旅部-2","旅部-3","旅部-4"],
+            cleanup: ["261-7","261-8","263-3","263-4"],
           },
         },
         daily: {
@@ -1062,7 +1035,7 @@ window.App = window.App || {};
   function isActiveOn(member, dateStr, meal) {
     if (member.joinDate && dateStr < member.joinDate) return false;
     /*
-     * 報到當天可以指定是哪一餐才到（旅部連是 8/6「中午」報到，那天早餐還沒有他們）。
+     * 報到當天可以指定是哪一餐才到（例如中午才報到的人，那天早餐還沒有他）。
      * 沒指定 joinMeal 就是一早就到。
      */
     if (member.joinDate && dateStr === member.joinDate && member.joinMeal && meal) {

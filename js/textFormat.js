@@ -58,7 +58,7 @@ window.App = window.App || {};
     return S.MEAL_KEYS.filter((m) => (schedule.meals || {})[m] && S.mealIsOn(dateStr, m));
   }
 
-  /** 名冊順序：261 → 263 → 旅部連，同梯依序號 */
+  /** 名冊順序：261 → 263 → 五營，同梯依序號 */
   function sortedMembers(members) {
     return members.slice().sort(window.App.State.rosterOrder);
   }

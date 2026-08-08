@@ -253,5 +253,103 @@ window.App = window.App || {};
     return { assignments, sizes, desiredSizes, warnings };
   }
 
-  window.App.CleanupSchedule = { computeCleanupDay, cleanupSizes, cleanupEligible, deliveryOnlyDinner, PER_MEAL_COUNT_KEY };
+  /*
+   * ⭐ 2026/08/08 起用的版本：單純照號碼輪，不管別的。
+   *
+   * 使用者的原話：「不用考慮洗碗不能徹收或是誰不能徹收，反正就是一樣照號碼輪，
+   * 先從 263 開始然後新的那五個人然後 261」。
+   *
+   * 三餐勤務已經不由程式排了（見 State.MEAL_DUTIES_ENABLED），所以上面那套
+   * 最小成本最大流的四條限制（洗碗的人不排、送便當只有晚上、免排晚上撤收、採買）
+   * 全部不適用——留著沒刪，是因為哪天要改回來就直接用得上。
+   *
+   * 這一版剩下的規則只有兩條：
+   *   1. 每餐幾個人：照原本那張人數階梯（CLEANUP_LADDER）
+   *   2. 誰去：一條隊伍 263 → 新進五位 → 261，早餐接午餐接晚餐接隔天，繞完回頭
+   *
+   * 那一餐不在營的人（退伍當天的晚上、去採買的）跳過，但**游標照樣往前**，
+   * 免得他一直卡在隊伍前面害後面的人輪不到——跟洗碗、換水的處理方式一致。
+   *
+   * @param {object} cleanupState - { nextStartId: string|null }
+   * @param {object[]} dayMembers - 當天有出現過的人（已排除只掃廁所的）
+   * @param {(memberId: string, meal: string) => boolean} isAvailable
+   * @param {string[]} mealsToday
+   */
+  function computeCleanupRotation(cleanupState, dayMembers, isAvailable, mealsToday) {
+    const St = window.App.State;
+    const available = isAvailable || (() => true);
+    const MEALS = (mealsToday && mealsToday.length ? mealsToday : MEAL_KEYS).slice();
+    const warnings = [];
+    const assignments = { breakfast: [], lunch: [], dinner: [] };
+    const desiredSizes = { breakfast: 0, lunch: 0, dinner: 0 };
+
+    const queue = dayMembers.slice().sort(St.cleanupOrder);
+    if (!queue.length) {
+      return { assignments, sizes: desiredSizes, desiredSizes, warnings, newCleanupState: cleanupState || { nextStartId: null } };
+    }
+
+    // 每餐幾個人：照原本那張階梯，用「今天有幾個人」查
+    const full = cleanupSizes(queue.length);
+    MEALS.forEach((meal) => (desiredSizes[meal] = full[meal]));
+
+    let cursor = 0;
+    if (cleanupState && cleanupState.nextStartId) {
+      const idx = queue.findIndex((m) => m.id === cleanupState.nextStartId);
+      if (idx >= 0) cursor = idx;
+    }
+
+    /*
+     * 一個人一天最多排一次撤收。
+     *
+     * 19 個人、一天 18 個名額，隊伍會在一天之內剛好繞完一圈——沒有這道防線的話，
+     * 繞回開頭的那個人會被同一天排到兩次（早餐又晚餐），而隊伍後面的人一次都沒有。
+     * 擋掉之後游標照樣往前，他就變成隔天第一個排到的人，順序完全沒亂。
+     */
+    const usedToday = new Set();
+
+    MEALS.forEach((meal) => {
+      const need = desiredSizes[meal];
+      const picked = [];
+      let steps = 0;
+      const maxSteps = queue.length * 2;
+      while (picked.length < need && steps < maxSteps) {
+        const member = queue[cursor];
+        cursor = (cursor + 1) % queue.length;
+        steps++;
+        if (!available(member.id, meal)) continue;
+        if (usedToday.has(member.id)) continue;
+        picked.push(member.id);
+        usedToday.add(member.id);
+      }
+      assignments[meal] = picked;
+      if (picked.length < need) {
+        warnings.push(
+          `${St.MEAL_LABELS[meal]}撤收需要 ${need} 人，但那一餐在營的只湊到 ${picked.length} 人。`
+        );
+      }
+    });
+
+    const sizes = {
+      breakfast: assignments.breakfast.length,
+      lunch: assignments.lunch.length,
+      dinner: assignments.dinner.length,
+    };
+
+    return {
+      assignments,
+      sizes,
+      desiredSizes,
+      warnings,
+      newCleanupState: { nextStartId: queue[cursor].id },
+    };
+  }
+
+  window.App.CleanupSchedule = {
+    computeCleanupDay,
+    computeCleanupRotation,
+    cleanupSizes,
+    cleanupEligible,
+    deliveryOnlyDinner,
+    PER_MEAL_COUNT_KEY,
+  };
 })();

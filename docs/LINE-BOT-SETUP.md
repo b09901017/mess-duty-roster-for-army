@@ -48,8 +48,27 @@
    - 你設的**房間代碼**
 3. 按一次上傳，確認畫面顯示「已同步」。
 
-機器人用**匿名登入**去讀，跟 App 一樣，所以現有的 Firestore 規則
-（`allow read, write: if request.auth != null`）就夠用，不需要另外下載服務帳戶金鑰。
+機器人用**匿名登入**去讀，跟 App 一樣，不需要另外下載服務帳戶金鑰。
+
+> ⚠️ **Firestore 規則要有兩段。** 機器人除了讀名冊（`rosters/`），還會把班長貼在群組裡的
+> 每日通知（熱追／便當數量／行動準據）**寫**進 `briefings/`。少了第二段就會存不進去。
+>
+> ```
+> rules_version = '2';
+> service cloud.firestore {
+>   match /databases/{database}/documents {
+>     match /rosters/{roomId} {
+>       allow read, write: if request.auth != null;
+>     }
+>     match /briefings/{roomId} {
+>       allow read, write: if request.auth != null;
+>     }
+>   }
+> }
+> ```
+>
+> 兩份文件分開存是刻意的：App 是「整份 state 一次覆蓋」，機器人要是寫同一份，
+> 值星按「確定紀錄」的同時班長剛好貼通知，其中一邊就會被蓋掉。
 
 ---
 

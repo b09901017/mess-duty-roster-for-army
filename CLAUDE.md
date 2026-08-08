@@ -9,6 +9,25 @@
 
 ---
 
+## ⭐ 2026/08/08 起：程式只排「全日勤務」
+
+三餐勤務（洗碗／廚餘／擦桌子／清地板／送便當／打菜流程／抬便當）改由**伙房班長現場直接律定人選**，程式不排了。
+
+- 開關是 `js/state.js` 的 **`MEAL_DUTIES_ENABLED = false`**
+- 相關程式碼**一行都沒刪**：`washSchedule.js`、`otherDuties.js`、`servingLine.js`、`dutySizeConfig.js` 原封不動；`scheduleEngine.js`、`cards.js`、`audit-rules.js` 裡那幾段用旗標包起來
+- 要恢復：把旗標改回 `true`，再把 `cards.js` 裡 `buildCarousel` 那段註解解開
+
+程式現在排的七項：**掃廁所、換水、抬洗衣籃上來／下去、早／午／晚撤收**。
+
+**撤收也換演算法了**：從「最小成本最大流 ＋ 四條限制」改成**單純照號碼輪**
+（`computeCleanupRotation`，隊伍是 263 → 新進五位 → 261），不管洗碗、不管誰免排，
+人數照原本那張階梯表。舊的 `computeCleanupDay` 留著沒刪。
+
+**LINE 只發六張卡片**：全日勤務、行動準據、熱追、早／午／晚便當數。
+後三種的內容是班長貼在群組裡、機器人自動解析存起來的（`js/briefing.js`）。
+
+---
+
 ## 這是什麼
 
 台灣教召打飯班（伙房）的排勤務工具。使用者是負責排班的役男，每天要把班表貼到 LINE 群組。
@@ -140,6 +159,7 @@
 | `js/waterSchedule.js` | 換水 |
 | `js/shoppingRoster.js` | 採買（逐日名單） |
 | `js/toiletDuty.js` | 掃廁所（逐日名單） |
+| `js/briefing.js` | **班長每日通知的解析**（熱追／便當數量／行動準據），含日期推斷與合併 |
 | `js/dutySizeConfig.js` | 人數對照表查詢 |
 | `js/dutyView.js` | 「某人某餐要做什麼」的共用推導 |
 | `js/textFormat.js` | 文字班表的組法（**網頁與 LINE bot 共用**） |
@@ -159,7 +179,7 @@
 | `api/_lib/app.js` | 在 `vm` sandbox 裡跑 `js/` 那份程式碼 |
 | `api/_lib/cards.js` | 組 Flex 卡片（配色、分段） |
 | `api/_lib/line.js` | 驗簽章（`readRawBody` 有四種取法）、回訊息 |
-| `api/_lib/firestore.js` | 匿名登入 + 讀雲端狀態 |
+| `api/_lib/firestore.js` | 匿名登入 ＋ 讀名冊狀態（`rosters/`）＋ 讀寫班長通知（`briefings/`，**另一份文件**） |
 | `api/_lib/png.js` | 純 JS 的 PNG 編碼 + 圓圖描繪（零套件、無字型） |
 | `api/_lib/fairnessImage.js` | 四項勤務排成 2×2 |
 | `api/fairness.js`／`api/state.js`／`api/config.js` | 圖片、LIFF 唯讀資料、LIFF ID |
@@ -228,6 +248,9 @@ const p = await b.newPage({ viewport: { width: 375, height: 1200 } });
 | 鎖定的日子忘記推進輪替進度 | 洗衣籃（`lastDown`）和洗碗（`washNextStartId`）都有從 override 接續，換水漏了 → 隔天從隊伍頭重來，柏宇 8/6、8/7 連兩天。**每加一項有輪替進度的勤務，都要回頭看 `computeDay` 的 override 區塊有沒有一起推進** |
 | 段落標題的比對規定「整行到〕就結束」 | `scheduleImport` 的 `^〔(.+?)〕$` 只認沒有補充說明的標題。8/7 幫「抬便當」「集合」這些段落加上（隨時到、隨時搬）之後，那些行不再被認成標題，`section` 就沿用上一段的值——整段被當成還在「打菜」，倒廚餘、送便當**全部讀不到**。改成 `^〔(.+?)〕`（不要求結尾），而且「哪一段是打菜」從 `MEAL_SECTIONS` 反查、不寫死標題 |
 | 把倒廚餘當成善後勤務 | 倒廚餘是**集合完馬上做**的，跟抬上樓兩批同時進行；善後勤務是休息完才做的，只有洗碗／擦桌子／清地板。四項的**人數還是一起算**（§4 那張表），只是做的時間點不同 |
+| 機器人跟網頁 App 寫同一份 Firestore 文件 | App 是整份 state 一次覆蓋的。班長貼通知的同時值星按「確定紀錄」，其中一邊就沒了。班長通知存在 **`briefings/{房間代碼}`**，跟 `rosters/{房間代碼}` 分開 |
+| 停用一整組功能時直接刪程式碼 | 使用者明講「先不要刪，用註解關掉就好」——規則常常改回來。用旗標（`MEAL_DUTIES_ENABLED`）比註解掉幾百行安全，而且 `git diff` 看得懂 |
+| 自動判斷文字班表格式時認段落標題 | `parseScheduleText` 以前用 `〔打菜〕` 判斷是不是「依餐別」格式。段落會隨規則增減（三餐停用後一段都不剩），改認 `【早餐】【全日】` 這種大標題 |
 | 讓 override 留下空的餐別 | `computeDay` 只看「這一餐有沒有 override」，空殼是 truthy → 整餐被鎖成空白。只貼一半、或 8/14 這種只有一餐的日子都會踩到，所以 `pruneEmptyMeals()` 要把沒讀到內容的餐別整個刪掉 |
 
 ---

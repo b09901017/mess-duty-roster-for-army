@@ -98,4 +98,83 @@ async function fetchRoster(env) {
   return { payload, updatedAt: unwrap(fields.updatedAt) || null };
 }
 
-module.exports = { fetchRoster };
+/*
+ * ── 班長每日通知（準據／熱追／便當數量）────────────────────────────
+ *
+ * 存在**另一份文件**（briefings/{房間代碼}），不跟名冊那份混在一起。
+ *
+ * 理由很實際：名冊那份是網頁 App 寫的，整份 state 一次覆蓋；機器人如果也去寫
+ * 同一份，兩邊就會互相蓋掉——值星在 App 上按「確定紀錄」的同時班長剛好貼了準據，
+ * 其中一邊的資料就沒了。分開兩份文件之後，兩邊各寫各的，永遠不會撞。
+ */
+function docUrl(projectId, collection, docId) {
+  return `${FIRESTORE_URL}/${encodeURIComponent(projectId)}/databases/(default)/documents/${collection}/${encodeURIComponent(docId)}`;
+}
+
+function requireEnv(env) {
+  const apiKey = env.FIREBASE_API_KEY;
+  const projectId = env.FIREBASE_PROJECT_ID;
+  const roomCode = env.ROSTER_ROOM_CODE;
+  const missing = [
+    !apiKey && "FIREBASE_API_KEY",
+    !projectId && "FIREBASE_PROJECT_ID",
+    !roomCode && "ROSTER_ROOM_CODE",
+  ].filter(Boolean);
+  if (missing.length) throw new Error(`還沒設定環境變數：${missing.join("、")}`);
+  return { apiKey, projectId, roomCode };
+}
+
+/**
+ * 讀班長貼過的每日通知。
+ * @returns {Promise<{data: object, updatedAt: string|null}>} data 是 { "2026-08-08": {...} }
+ */
+async function fetchBriefings(env) {
+  const { apiKey, projectId, roomCode } = requireEnv(env);
+  const idToken = await signInAnonymously(apiKey);
+  const res = await fetch(docUrl(projectId, "briefings", roomCode), {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+
+  // 還沒有人貼過任何東西，不是錯
+  if (res.status === 404) return { data: {}, updatedAt: null };
+  if (!res.ok) {
+    const body = await res.text();
+    if (res.status === 401 || res.status === 403) cachedToken = null;
+    throw new Error(`讀取班長通知失敗（${res.status}）：${body.slice(0, 300)}`);
+  }
+
+  const doc = await res.json();
+  const fields = doc.fields || {};
+  const payload = unwrap(fields.payload);
+  if (!payload) return { data: {}, updatedAt: unwrap(fields.updatedAt) || null };
+  try {
+    return { data: JSON.parse(payload), updatedAt: unwrap(fields.updatedAt) || null };
+  } catch (err) {
+    throw new Error("雲端的班長通知格式看不懂，請叫班長重貼一次。");
+  }
+}
+
+/** 覆蓋整份班長通知（呼叫端要自己先 merge） */
+async function saveBriefings(env, data) {
+  const { apiKey, projectId, roomCode } = requireEnv(env);
+  const idToken = await signInAnonymously(apiKey);
+  const res = await fetch(docUrl(projectId, "briefings", roomCode), {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fields: {
+        payload: { stringValue: JSON.stringify(data) },
+        updatedAt: { timestampValue: new Date().toISOString() },
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    if (res.status === 401 || res.status === 403) cachedToken = null;
+    throw new Error(`存班長通知失敗（${res.status}）：${body.slice(0, 300)}`);
+  }
+  return true;
+}
+
+module.exports = { fetchRoster, fetchBriefings, saveBriefings };

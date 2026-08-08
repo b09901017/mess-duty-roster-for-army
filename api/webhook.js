@@ -16,6 +16,7 @@ const { parseCommand } = require("./_lib/parseCommand");
 const { loadApp, scheduleFor } = require("./_lib/roster");
 const { buildCarousel } = require("./_lib/cards");
 const { renderFairnessImage } = require("./_lib/fairnessImage");
+const firestore = require("./_lib/firestore");
 
 const HELP_TEXT = [
   "打飯班小幫手用法：",
@@ -23,7 +24,10 @@ const HELP_TEXT = [
   "・明日勤務／昨日勤務",
   "・8/5 勤務　→ 指定日期",
   "・直接 @我 也會回今天的",
-  "回覆是可以左右滑的卡片：三餐勤務、各梯個人分工、全日勤務、公平性總覽。",
+  "回覆是可以左右滑的六張卡片：全日勤務、行動準據、熱追、早／午／晚便當數。",
+  "",
+  "班長把「熱追／便當數量／行動準據」貼在群組裡，我會自動存起來（照日期分），",
+  "同一天再貼一次就覆蓋掉舊的。",
 ].join("\n");
 
 function baseUrlOf(req) {
@@ -49,13 +53,68 @@ function mentionsBot(message) {
   return mentionees.some((m) => m.isSelf === true);
 }
 
+/*
+ * 班長把每日通知貼進群組時，把它解析、存到雲端。
+ *
+ * 這一段要放在 parseCommand 之前——那份文字裡沒有「勤務」也沒有 @ 機器人，
+ * 照一般規則會被當成閒聊直接忽略掉。
+ *
+ * @returns {boolean} 有沒有當成班長通知處理掉（true 就不用再往下判斷指令）
+ */
+async function handleBriefing(event, token) {
+  const text = event.message.text;
+  if (!App_Briefing().looksLikeBriefing(text)) return false;
+
+  const parsed = App_Briefing().parseBriefing(text, event.timestamp);
+  if (!parsed.ok) return false;
+
+  try {
+    const { data } = await firestore.fetchBriefings(process.env);
+    const merged = App_Briefing().mergeBriefings(data, parsed.entries);
+    await firestore.saveBriefings(process.env, merged);
+  } catch (err) {
+    console.error("存班長通知失敗", err);
+    await reply(event.replyToken, textMessage(`收到了，但存不進雲端：${err.message}`), token);
+    return true;
+  }
+
+  const summary = parsed.dates
+    .map((date) => {
+      const e = parsed.entries[date];
+      const got = App_Briefing()
+        .SECTION_KEYS.filter((k) => e[k] !== undefined)
+        .map((k) => App_Briefing().SECTION_LABELS[k]);
+      return `${date.slice(5).replace("-", "/")}：${got.join("、")}`;
+    })
+    .join("\n");
+
+  await reply(
+    event.replyToken,
+    textMessage(`✅ 收到班長的通知，已存起來：\n${summary}\n\n@我 就會把卡片叫出來。`),
+    token
+  );
+  return true;
+}
+
+/*
+ * 解析班長通知的程式碼跟排班的那份放在一起（js/briefing.js），
+ * 走 vm sandbox 載入。這裡只是拿一個乾淨的實例來用，不需要雲端資料。
+ */
+let briefingLib = null;
+function App_Briefing() {
+  if (!briefingLib) briefingLib = require("./_lib/app").createApp(null).Briefing;
+  return briefingLib;
+}
+
 async function handleEvent(event, req) {
   if (event.type !== "message" || !event.message || event.message.type !== "text") return;
 
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+
+  if (await handleBriefing(event, token)) return;
+
   const command = parseCommand(event.message.text, { mentionedBot: mentionsBot(event.message) });
   if (!command) return;
-
-  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
   if (command.kind === "help") {
     await reply(event.replyToken, textMessage(HELP_TEXT), token);
@@ -88,11 +147,21 @@ async function handleEvent(event, req) {
     console.error("公平性圖表算不出來", err);
   }
 
+  // 班長那天貼過的準據／熱追／便當數量；沒貼過就是空的，卡片會寫「班長還沒貼」
+  let briefing = {};
+  try {
+    const { data } = await firestore.fetchBriefings(process.env);
+    briefing = (data || {})[command.date] || {};
+  } catch (err) {
+    console.error("讀班長通知失敗", err);
+  }
+
   const carousel = buildCarousel(App, command.date, result.schedule, {
     imageUrl,
     fullUrl: fullUrlOf(req),
     cells,
     preview: result.preview,
+    briefing,
   });
 
   const messages = [carousel];

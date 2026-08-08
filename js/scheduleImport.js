@@ -414,11 +414,16 @@ window.App = window.App || {};
     return { ok: errors.length === 0, override: errors.length ? null : override, errors, warnings };
   }
 
-  /** 自動判斷貼進來的是哪一種格式 */
+  /**
+   * 自動判斷貼進來的是哪一種格式。
+   *
+   * 認的是「依餐別」才有的【早餐】【全日】這種大標題，不是〔打菜〕那種段落標題——
+   * 段落會隨規則增減（三餐勤務停用之後就一段都不剩了），大標題不會。
+   */
   function parseScheduleText(text, members) {
-    return /〔打菜〕|〔勤務〕/.test(String(text || ""))
-      ? parseMealText(text, members)
-      : parsePersonText(text, members);
+    const t = String(text || "");
+    const looksLikeMealText = /【(早餐|中餐|晚餐|全日)】/.test(t) || /〔打菜〕|〔勤務〕/.test(t);
+    return looksLikeMealText ? parseMealText(text, members) : parsePersonText(text, members);
   }
 
   window.App.ScheduleImport = { parseMealText, parsePersonText, parseScheduleText, buildNameIndex };

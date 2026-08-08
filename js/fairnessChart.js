@@ -31,8 +31,17 @@ window.App = window.App || {};
    */
   const HIDDEN_FROM_CHARTS = ["shopping", "toilet", "cleanupBreakfast", "cleanupLunch", "cleanupDinner"];
 
+  /*
+   * 三餐勤務停用之後，洗碗／廚餘／擦桌子／清地板／打菜那幾張圖永遠是空的，
+   * 畫出來只是一排「還沒有人做過這項勤務」。所以只留現在真的還在排的那幾項。
+   */
+  const DUTIES_WHEN_MEALS_OFF = ["cleanup", "water", "laundry"];
+
   function chartedDutyKeys() {
-    return window.App.State.DUTY_KEYS.filter((k) => HIDDEN_FROM_CHARTS.indexOf(k) === -1);
+    const St = window.App.State;
+    const keys = St.DUTY_KEYS.filter((k) => HIDDEN_FROM_CHARTS.indexOf(k) === -1);
+    if (St.MEAL_DUTIES_ENABLED) return keys;
+    return keys.filter((k) => DUTIES_WHEN_MEALS_OFF.indexOf(k) !== -1);
   }
 
   /**

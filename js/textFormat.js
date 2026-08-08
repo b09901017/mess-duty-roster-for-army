@@ -74,7 +74,7 @@ window.App = window.App || {};
     const dishes = mealData.dishes != null ? mealData.dishes : S.menuSizeFor(dateStr, mealKey);
     const serving = (mealData && mealData.serving) || {};
 
-    const sections = S.MEAL_SECTIONS.map((section) => {
+    const sections = S.mealSections().map((section) => {
       const rows = [];
       (section.rows || []).forEach((rowKey) => {
         if (S.SERVING_ROWS.indexOf(rowKey) !== -1) {
@@ -98,13 +98,21 @@ window.App = window.App || {};
     return { heading: S.MEAL_LABELS[mealKey], menu: S.menuLabel(mealKey, dishes), sections };
   }
 
-  /** 全日勤務（採買、洗衣籃）；沒有的話回空陣列 */
+  /**
+   * 全日勤務（掃廁所、換水、洗衣籃、早／午／晚撤收）；沒有的話回空陣列。
+   *
+   * 撤收的資料存在 schedule.meals[meal].cleanup（它本來就是分餐別的），
+   * 但顯示上跟其他全日勤務放同一張表最好對，所以在這裡把它撈出來。
+   */
   function dailyRows(dateStr, schedule, names) {
     const S = window.App.State;
     const daily = schedule.daily || {};
     const rows = [];
     S.DAILY_DUTY_ROWS.forEach((rowKey) => {
-      const ids = daily[rowKey] || [];
+      const cleanupMeal = S.CLEANUP_ROW_MEAL[rowKey];
+      const ids = cleanupMeal
+        ? ((schedule.meals || {})[cleanupMeal] || {}).cleanup || []
+        : daily[rowKey] || [];
       if (!ids.length) return;
       const note = rowKey === "shopping" ? shoppingNote(dateStr) : "";
       rows.push({
@@ -133,7 +141,7 @@ window.App = window.App || {};
         seqLabel: `${member.cohort}-${member.seq}`,
         name: names[member.id] || member.name,
         meals: [{ head: "全日", note: "只排掃廁所，不排三餐勤務" }],
-        extra: DV.dailyDutyLabels(schedule.daily, member.id).slice(),
+        extra: DV.dailyDutyLabels(schedule.daily, member.id, schedule).slice(),
       };
     }
 
@@ -153,7 +161,7 @@ window.App = window.App || {};
       };
     });
 
-    const extra = DV.dailyDutyLabels(schedule.daily, member.id).slice();
+    const extra = DV.dailyDutyLabels(schedule.daily, member.id, schedule).slice();
     /*
      * 採買的人早、中那兩格已經寫「採買」了，這裡不用再重複一行。
      * 只有設了集合時間才值得多寫一行，因為那是那兩格看不到的資訊。
@@ -187,6 +195,8 @@ window.App = window.App || {};
 
     mealKeysOf(dateStr, schedule).forEach((mealKey) => {
       const block = mealRows(dateStr, schedule, mealKey, names);
+      // 三餐勤務停用之後那一餐一段都沒有，印個空標題只是佔位
+      if (!block.sections.length) return;
       lines.push("", DIVIDER, `【${block.heading}】${block.menu}`);
       block.sections.forEach((section) => {
         lines.push("", `〔${section.title}〕${section.hint ? `（${section.hint}）` : ""}`);

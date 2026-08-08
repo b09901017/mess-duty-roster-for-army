@@ -25,9 +25,10 @@ function recount(App) {
     // 8/14 只吃早餐，不能寫死三餐
     S.MEAL_KEYS.filter(m => sc.meals[m]).forEach(meal => {
       const m = sc.meals[meal];
-      (m.serving.serveDish||[]).forEach(id => add(id, 'serveDish'));
-      (m.serving.lid||[]).forEach(id => add(id, 'lid'));
-      (m.serving.boxing||[]).forEach(id => add(id, 'boxing'));
+      // 三餐勤務停用之後，meals[meal] 只剩 cleanup，其餘欄位根本不存在
+      ((m.serving || {}).serveDish||[]).forEach(id => add(id, 'serveDish'));
+      ((m.serving || {}).lid||[]).forEach(id => add(id, 'lid'));
+      ((m.serving || {}).boxing||[]).forEach(id => add(id, 'boxing'));
       (m.dishwash||[]).forEach(id => add(id, 'dishwash'));
       (m.foodwaste||[]).forEach(id => add(id, 'foodwaste'));
       (m.floor||[]).forEach(id => add(id, 'floor'));
@@ -113,17 +114,23 @@ allOk = compare('E 改設定後重播            ', e) && allOk;
 const f = seedPicks(createApp(null));
 days.forEach(d => f.ScheduleEngine.commitDay(d));
 const st = f.State.get();
-console.log('\n鎖定的 8/5、8/6：');
-console.log('  洗碗人數 早/中/晚 =',
-  ['breakfast','lunch','dinner'].map(m => st.schedules['2026-08-05'].meals[m].dishwash.length).join('/'));
-const kb = st.schedules['2026-08-05'].meals.breakfast.dishwash;
-console.log('  早餐洗碗 =', kb.map(id => f.State.memberById(id).name).join('、'));
-console.log('  8/5 洗衣籃下去 =', (st.schedules['2026-08-05'].daily.laundryDown||[]).map(id=>f.State.memberById(id).name).join('、'));
-console.log('  8/6 洗衣籃上來 =', (st.schedules['2026-08-06'].daily.laundryUp||[]).map(id=>f.State.memberById(id).name).join('、'));
-console.log('  8/6 洗衣籃下去 =', (st.schedules['2026-08-06'].daily.laundryDown||[]).map(id=>f.State.memberById(id).name).join('、'));
-console.log('  8/7 洗衣籃上來 =', (st.schedules['2026-08-07'].daily.laundryUp||[]).map(id=>f.State.memberById(id).name).join('、'));
-console.log('  8/7 早餐洗碗 =', st.schedules['2026-08-07'].meals.breakfast.dishwash.map(id=>f.State.memberById(id).name).join('、'));
-console.log('  8/14 有幾餐 =', ['breakfast','lunch','dinner'].filter(m=>st.schedules['2026-08-14'].meals[m]).length);
+console.log('\n輪替有沒有接上（鎖定的 8/5、8/6 → 之後）：');
+const nameOf = id => (f.State.memberById(id) || {}).name || id;
+const list = (date, key) => (st.schedules[date].daily[key] || []).map(nameOf).join('、') || '無';
+console.log('  8/5 洗衣籃下去 =', list('2026-08-05', 'laundryDown'));
+console.log('  8/6 洗衣籃上來 =', list('2026-08-06', 'laundryUp'));
+console.log('  8/6 洗衣籃下去 =', list('2026-08-06', 'laundryDown'));
+console.log('  8/7 洗衣籃上來 =', list('2026-08-07', 'laundryUp'));
+console.log('  8/7 換水       =', list('2026-08-07', 'water'), '（8/7 照舊，柏宇連兩天）');
+console.log('  8/8 換水       =', list('2026-08-08', 'water'));
+console.log('  8/14 有幾餐    =', ['breakfast','lunch','dinner'].filter(m=>st.schedules['2026-08-14'].meals[m]).length);
+console.log('\n撤收輪替（8/8 起照號碼輪：263 → 新進五位 → 261）：');
+['2026-08-08','2026-08-09'].forEach(date => {
+  ['breakfast','lunch','dinner'].filter(m => st.schedules[date].meals[m]).forEach(meal => {
+    const ids = st.schedules[date].meals[meal].cleanup || [];
+    console.log(`  ${date.slice(5)} ${meal.padEnd(9)} ${ids.map(nameOf).join('、')}`);
+  });
+});
 
 /*
  * G. 文字班表貼回來鎖定，讀到的內容要跟原本的班表一模一樣。
@@ -135,6 +142,10 @@ console.log('  8/14 有幾餐 =', ['breakfast','lunch','dinner'].filter(m=>st.sc
  */
 console.log('\n文字班表貼回來（鎖定用）：');
 let roundTripOk = true;
+/*
+ * 三餐勤務停用之後，文字班表只剩【全日】那一段（撤收也在裡面），
+ * 所以這一組只驗「全日那幾行讀得回來」。三餐那部分的斷言留著，旗標打開就會跑。
+ */
 const g = seedPicks(createApp(null));
 days.forEach(d => g.ScheduleEngine.commitDay(d));
 const gst = g.State.get();
@@ -148,7 +159,7 @@ const gnames = g.TextFormat.displayNameMap();
     if (!r.ok) problems.push(...r.errors);
     problems.push(...r.warnings);
     // 每一餐：讀回來的打菜名單要剛好等於那一餐在場的人
-    if (r.ok) {
+    if (r.ok && g.State.MEAL_DUTIES_ENABLED) {
       g.State.MEAL_KEYS.filter(m => sc.meals[m]).forEach(meal => {
         const present = g.State.activeMembersOn(date, meal)
           .filter(m => !m.dutyExempt)
@@ -160,14 +171,16 @@ const gnames = g.TextFormat.displayNameMap();
         if (missing.length) {
           problems.push(`${meal} 打菜漏了 ${missing.map(id => g.State.memberById(id).name).join('、')}`);
         }
-        // 勤務欄位也要讀得回來，不能整行消失
         ['dishwash', 'foodwaste', 'wipe', 'floor', 'cleanup'].forEach(k => {
           if ((sc.meals[meal][k] || []).length && !(r.override.meals[meal][k] || []).length) {
             problems.push(`${meal} ${k} 整行沒讀到`);
           }
         });
       });
-      g.State.DAILY_DUTY_ROWS.forEach(k => {
+    }
+    if (r.ok) {
+      // 全日那幾行（掃廁所／換水／洗衣籃）一定要讀得回來
+      ['toilet', 'water', 'laundryUp', 'laundryDown'].forEach(k => {
         if ((sc.daily[k] || []).length && !(r.override.daily[k] || []).length) {
           problems.push(`全日 ${k} 整行沒讀到`);
         }

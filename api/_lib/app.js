@@ -33,6 +33,7 @@ const FILES = [
   "servingLine.js",
   "dutyView.js",
   "scheduleImport.js",
+  "briefing.js",
   "textFormat.js",
   "fairnessChart.js",
   "scheduleEngine.js",

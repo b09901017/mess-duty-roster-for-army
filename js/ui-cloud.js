@@ -65,6 +65,9 @@ service cloud.firestore {
     match /rosters/{roomId} {
       allow read, write: if request.auth != null;
     }
+    match /briefings/{roomId} {
+      allow read, write: if request.auth != null;
+    }
   }
 }</textarea>
         <button type="button" class="ghost-btn" id="copy-rules-btn">📋 複製規則</button>

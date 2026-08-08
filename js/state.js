@@ -63,8 +63,8 @@ window.App = window.App || {};
    * 名冊的固定順序。招員是 261-9~13，所以照 cohort+seq 排就會自然接在 261-8 後面。
    * 旅部連是 8/6 中午報到的第三個群體。
    */
-  const COHORT_ORDER = ["261", "263", "旅部"];
-  const COHORT_LABELS = { 261: "261 梯", 263: "263 梯", 旅部: "旅部連" };
+  const COHORT_ORDER = ["261", "263", "新", "旅部"];
+  const COHORT_LABELS = { 261: "261 梯", 263: "263 梯", 新: "新進五位", 旅部: "旅部連" };
   function rosterOrder(a, b) {
     const ca = COHORT_ORDER.indexOf(a.cohort);
     const cb = COHORT_ORDER.indexOf(b.cohort);
@@ -73,7 +73,7 @@ window.App = window.App || {};
   }
 
   // 洗碗的輪替順序（使用者指定）：263 → 261 → 招員 → 旅部連。招員就是 261-9~13。
-  const WASH_COHORT_ORDER = ["263", "261", "旅部"];
+  const WASH_COHORT_ORDER = ["263", "261", "新", "旅部"];
   function washOrder(a, b) {
     const ca = WASH_COHORT_ORDER.indexOf(a.cohort);
     const cb = WASH_COHORT_ORDER.indexOf(b.cohort);
@@ -81,8 +81,36 @@ window.App = window.App || {};
     return a.seq - b.seq;
   }
 
+  /*
+   * 撤收的輪替順序（使用者 8/8 指定）：**263 → 新進五位 → 261**。
+   * 跟名冊順序（261 → 263 → 新）與洗碗順序都不一樣，所以另外開一份。
+   */
+  const CLEANUP_COHORT_ORDER = ["263", "新", "261", "旅部"];
+  function cleanupOrder(a, b) {
+    const ca = CLEANUP_COHORT_ORDER.indexOf(a.cohort);
+    const cb = CLEANUP_COHORT_ORDER.indexOf(b.cohort);
+    if (ca !== cb) return ca - cb;
+    return a.seq - b.seq;
+  }
+
   const MEAL_KEYS = ["breakfast", "lunch", "dinner"];
   const MEAL_LABELS = { breakfast: "早餐", lunch: "中餐", dinner: "晚餐" };
+
+  /*
+   * ⭐ 2026/08/08 起：三餐勤務改由伙房班長現場直接律定人選，程式不再排。
+   *
+   * 程式現在只排「全日勤務」這七項：
+   *   掃廁所、換水、抬洗衣籃上來、抬洗衣籃下去、早撤收、午撤收、晚撤收
+   *
+   * 不再排的有：洗碗、廚餘、擦桌子、清地板、送便當、打菜流程（打飯／打菜／
+   * 蓋便當／計數／抬飲料／包便當）、抬便當下車／上車／上樓。
+   *
+   * ⚠️ 相關的程式碼**一行都沒有刪**——washSchedule.js、otherDuties.js、
+   * servingLine.js、dutySizeConfig.js 全部原封不動留著，只是不再被呼叫；
+   * scheduleEngine.js 裡那一段用註解包起來，MEAL_SECTIONS 的欄位也註解掉。
+   * 要恢復的話把這個旗標改回 true，再把 scheduleEngine 那段註解解開就好。
+   */
+  const MEAL_DUTIES_ENABLED = false;
 
   /*
    * 一餐的實際流程（使用者 8/7 訂正）：
@@ -124,6 +152,14 @@ window.App = window.App || {};
     { key: "after", title: "善後勤務", hint: "下來統一休息 10 分鐘之後", rows: ["dishwash", "wipe", "floor"] },
     { key: "cleanup", title: "撤收", rows: ["cleanup"] },
   ];
+
+  /*
+   * MEAL_DUTIES_ENABLED 關掉之後，班表只印撤收那一段（而且撤收已經改列在全日勤務裡，
+   * 所以三餐其實整個不印）。上面那份完整定義原封不動留著，旗標打開就會回來。
+   */
+  function mealSections() {
+    return MEAL_DUTIES_ENABLED ? MEAL_SECTIONS : [];
+  }
 
   // 打完菜之後才做的那些（倒廚餘＋善後＋撤收），公平性與稽核會用到
   const MEAL_DUTY_ROWS = ["dishwash", "foodwaste", "wipe", "floor", "delivery", "carryUpstairs", "cleanup"];
@@ -203,10 +239,29 @@ window.App = window.App || {};
   }
 
   /*
-   * 一天只做一次、不分餐別的勤務。
-   * 換水雖然是早餐撤收完才做，但一天只有一次，跟採買、洗衣籃一樣列在「全日」比較好找。
+   * 「全日勤務」要印哪幾行、照什麼順序（使用者 8/8 指定）。
+   *
+   * 撤收本來是分餐別的，但現在程式只排這一項三餐勤務，跟掃廁所、換水、洗衣籃
+   * 印在同一張表上最好對——所以早／午／晚撤收也列進來。
+   * 資料還是存在 schedules[date].meals[meal].cleanup，這裡只是顯示順序。
    */
-  const DAILY_DUTY_ROWS = ["shopping", "toilet", "water", "laundryUp", "laundryDown"];
+  const DAILY_DUTY_ROWS = [
+    "shopping",
+    "toilet",
+    "water",
+    "laundryUp",
+    "laundryDown",
+    "cleanupBreakfast",
+    "cleanupLunch",
+    "cleanupDinner",
+  ];
+
+  /** 全日勤務裡的撤收三行 → 是哪一餐 */
+  const CLEANUP_ROW_MEAL = {
+    cleanupBreakfast: "breakfast",
+    cleanupLunch: "lunch",
+    cleanupDinner: "dinner",
+  };
 
   const DUTY_LABELS = {
     dishwash: "洗碗",
@@ -231,6 +286,9 @@ window.App = window.App || {};
     laundryDown: "抬洗衣籃下去（睡前）",
     shopping: "採買",
     toilet: "掃廁所（0900、2100）",
+    cleanupBreakfast: "早餐撤收",
+    cleanupLunch: "午餐撤收",
+    cleanupDinner: "晚餐撤收",
   };
 
   // 個人分工那邊用短一點的說法，一行才塞得下
@@ -255,6 +313,9 @@ window.App = window.App || {};
     laundryDown: "抬洗衣籃下去",
     shopping: "採買",
     toilet: "掃廁所",
+    cleanupBreakfast: "早餐撤收",
+    cleanupLunch: "午餐撤收",
+    cleanupDinner: "晚餐撤收",
     departed: "已離營",
   };
 
@@ -281,6 +342,9 @@ window.App = window.App || {};
     laundryDown: "🧺",
     shopping: "🛒",
     toilet: "🚻",
+    cleanupBreakfast: "📦",
+    cleanupLunch: "📦",
+    cleanupDinner: "📦",
   };
 
   function emptyDutyCount() {
@@ -304,26 +368,19 @@ window.App = window.App || {};
   const KAICHEN_RETURN_DATE = "2026-08-07";
 
   /*
-   * 廖翊滕 8/10 晚上退伍，當晚上面補一個人下來頂他的缺。
+   * 2026/08/08 早上的人員大異動：
+   *   - 招員五位（261-9~13 丁楚祐、蔣許子宸、文軍諺、王傑立、簡宏穎）離開
+   *   - 新的五位報到（玉坤、倢睿、成堡、睿諭、宗聖），自成一個群體
+   *   - 原本說 8/10 要下來頂廖翊滕缺的那位「新人」不會來了，直接從名冊拿掉
    *
-   * 「原本翊滕之後怎麼排，這個新人就怎麼排」——不用寫特別的規則，
-   * 因為廚餘／擦桌子／清地板／撤收／打菜全部是「這項做最少次的人優先」，
-   * 新人一進來次數是 0，本來就會被優先排到，等於自動接上翊滕的工作量。
-   * 公平範圍又是按在營天數等比例算的，所以他只待四天也不會被標成偏少。
+   * 這天之後的人數是 19（＋只掃廁所、不算人頭的愷宸 ＝ 20）。
+   * 8/7 以前照舊，所以那天已經公布出去的班表不會被這次異動改掉。
    */
-  const REPLACEMENT_JOIN_DATE = "2026-08-10";
-  const REPLACEMENT_JOIN_MEAL = "dinner"; // 晚上才到，那天早餐、中餐還沒有他
+  const SWAP_DATE = "2026-08-08";
 
   /*
-   * 招員五位（261-9~13）的固定勤務。
-   *
-   * 使用者 8/15 改的：早、晚洗碗，中午做廚餘。
-   * 「洗碗的人那一餐不排撤收」是既有規則，但廚餘沒有這條，
-   * 所以他們早、晚不排撤收（在洗碗），中午廚餘做完照樣要排撤收。
-   *
-   * 上一版試過「三餐都洗碗」，被退回了——把 5 個人整組抽出輪替，
-   * 剩下的 12 個人要吃下全部的廚餘、擦桌子、清地板。這一版中午他們還在池子裡
-   * 而且直接吃掉大部分廚餘名額，剛好避開那個問題。
+   * 招員五位（261-9~13）的固定勤務（早、晚洗碗，中午廚餘）。
+   * 他們 8/8 離開之後這組設定就沒有作用了，留著是為了 8/7 以前的班表重播得出來。
    */
   const RECRUIT_SEQS = [9, 10, 11, 12, 13];
   const RECRUIT_DISHWASH_MEALS = ["breakfast", "dinner"];
@@ -375,15 +432,16 @@ window.App = window.App || {};
       ["陳俊穎", "2026-08-13", LEAVE_AFTER_LUNCH, null],
       ["林柏宇", "2026-08-14", LEAVE_AFTER_LUNCH, null],
       ["林崇浩", "2026-08-13", LEAVE_AFTER_LUNCH, null],
-      // 8/4 早上報到的五位新人：不排抬洗衣籃，也不排晚上的撤收
-      ["丁楚祐", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
-      ["蔣許子宸", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
-      ["文軍諺", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
-      ["王傑立", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
-      ["簡宏穎", null, LEAVE_AFTER_LUNCH, CHANGE_DATE],
-      // 8/10 晚上補下來頂廖翊滕缺的那位。名字確定之後到「名冊」分頁改掉就好。
-      ["新人", null, LEAVE_AFTER_LUNCH, REPLACEMENT_JOIN_DATE, REPLACEMENT_JOIN_MEAL],
+      // 招員五位：8/4 早上報到，8/8 早上離開
+      ["丁楚祐", SWAP_DATE, LEAVE_IMMEDIATE, CHANGE_DATE],
+      ["蔣許子宸", SWAP_DATE, LEAVE_IMMEDIATE, CHANGE_DATE],
+      ["文軍諺", SWAP_DATE, LEAVE_IMMEDIATE, CHANGE_DATE],
+      ["王傑立", SWAP_DATE, LEAVE_IMMEDIATE, CHANGE_DATE],
+      ["簡宏穎", SWAP_DATE, LEAVE_IMMEDIATE, CHANGE_DATE],
     ];
+
+    // 8/8 早上報到的五位，自成一個群體（撤收輪替時排在 263 後面、261 前面）
+    const rNew = ["玉坤", "倢睿", "成堡", "睿諭", "宗聖"];
     const r263 = [
       ["陳東霖", null, LEAVE_AFTER_LUNCH],
       ["呂胤玄", null, LEAVE_AFTER_LUNCH],
@@ -447,6 +505,29 @@ window.App = window.App || {};
         fixedRole: null,
         servingRole: seedServingRole(`263-${seq}`),
         servingRank: seedServingRank(`263-${seq}`),
+        skipLaundry: false,
+        skipDinnerCleanup: false,
+        skipWater: false,
+        fixedDishwashMeals: [],
+        fixedFoodwasteMeals: [],
+        dutyExempt: false,
+        carryGroup: null,
+      });
+    });
+    rNew.forEach((name, idx) => {
+      const seq = idx + 1;
+      members.push({
+        id: `新-${seq}`,
+        name,
+        cohort: "新",
+        seq,
+        joinDate: SWAP_DATE,
+        joinMeal: null,
+        dischargeDate: null,
+        leaveMode: LEAVE_AFTER_LUNCH,
+        fixedRole: null,
+        servingRole: null,
+        servingRank: 1,
         skipLaundry: false,
         skipDinnerCleanup: false,
         skipWater: false,
@@ -585,6 +666,14 @@ window.App = window.App || {};
 
   function defaultLaundryState() {
     return { lastAssignedId: null, lastDown: [] };
+  }
+
+  /*
+   * 撤收的輪替進度（8/8 起改成單純照號碼輪之後才有）。
+   * 跟洗碗一樣記「下一個從誰開始」，早餐接午餐接晚餐接隔天，一路往下繞。
+   */
+  function defaultCleanupState() {
+    return { nextStartId: null };
   }
 
   /*
@@ -829,6 +918,7 @@ window.App = window.App || {};
       // ── 推導出來的快取（由 ScheduleEngine.rebuildAll 重算，不要手動改）──
       dutyCounts,
       washState: defaultWashState(),
+      cleanupState: defaultCleanupState(),
       laundryState: defaultLaundryState(),
       waterState: defaultWaterState(),
       schedules: {},
@@ -852,6 +942,7 @@ window.App = window.App || {};
     const base = defaultState();
     const merged = Object.assign({}, base, parsed, {
       washState: Object.assign({}, base.washState, parsed.washState),
+      cleanupState: Object.assign({}, base.cleanupState, parsed.cleanupState),
       laundryState: Object.assign({}, base.laundryState, parsed.laundryState),
       waterState: Object.assign({}, base.waterState, parsed.waterState),
       shoppingTimes: Object.assign({}, base.shoppingTimes, parsed.shoppingTimes),
@@ -1036,6 +1127,7 @@ window.App = window.App || {};
     state.members.forEach((m) => (dutyCounts[m.id] = emptyDutyCount()));
     state.dutyCounts = dutyCounts;
     state.washState = defaultWashState();
+    state.cleanupState = defaultCleanupState();
     state.laundryState = defaultLaundryState();
     state.waterState = defaultWaterState();
     state.schedules = {};
@@ -1062,8 +1154,13 @@ window.App = window.App || {};
     mealsOn,
     mealIsOn,
     MEAL_SECTIONS,
+    mealSections,
+    MEAL_DUTIES_ENABLED,
     MEAL_FLOW,
     MEAL_DUTY_ROWS,
+    CLEANUP_ROW_MEAL,
+    CLEANUP_COHORT_ORDER,
+    cleanupOrder,
     RECRUIT_DISHWASH_MEALS,
     RECRUIT_FOODWASTE_MEALS,
     FIXED_DUTY_PRESETS,
@@ -1107,6 +1204,7 @@ window.App = window.App || {};
     resetRecords,
     clearDerived,
     defaultWashState,
+    defaultCleanupState,
     defaultShoppingTimes,
     defaultLaundryState,
     defaultWaterState,

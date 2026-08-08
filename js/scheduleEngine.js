@@ -142,6 +142,8 @@ window.App = window.App || {};
     mealsToday.forEach((meal) => {
       const present = dayMembers.filter((m) => availableForMeal(m.id, meal));
       presentByMeal[meal] = present;
+      // 三餐勤務停用之後就不用查對照表了（那張表只管洗碗／廚餘／擦桌子／清地板）
+      if (!St.MEAL_DUTIES_ENABLED) return;
       /*
        * 對照表是按「扣掉送便當之後還有幾個人」查的，不是按出勤人數。
        * 送便當是固定角色，人數由那兩位還在不在決定，不是可以自由分配的欄位；
@@ -165,7 +167,9 @@ window.App = window.App || {};
      * 但「還在營、只是那天被派去採買」是另一回事——那是可以改的安排，
      * 而便當還是得有人送，所以這種情況要講出來。
      */
-    const deliveryShoppers = dayMembers.filter((m) => m.fixedRole === "delivery" && shopperIds.has(m.id));
+    const deliveryShoppers = St.MEAL_DUTIES_ENABLED
+      ? dayMembers.filter((m) => m.fixedRole === "delivery" && shopperIds.has(m.id))
+      : [];
     if (deliveryShoppers.length) {
       const stillHere = dayMembers.filter(
         (m) => m.fixedRole === "delivery" && !shopperIds.has(m.id) && St.isActiveOn(m, dateStr, "lunch")
@@ -178,26 +182,55 @@ window.App = window.App || {};
       );
     }
 
-    const dishwashCounts = {};
-    mealsToday.forEach((meal) => (dishwashCounts[meal] = sizeByMeal[meal].dishwash));
+    /*
+     * 洗碗。2026/08/08 起三餐勤務改由班長現場律定，這一段不再執行；
+     * washSchedule.js 原封不動留著，旗標打開就會回來。
+     */
+    let washDay = {
+      assignments: { breakfast: [], lunch: [], dinner: [] },
+      newWashState: snapshot.washState,
+      warnings: [],
+    };
+    if (St.MEAL_DUTIES_ENABLED) {
+      const dishwashCounts = {};
+      mealsToday.forEach((meal) => (dishwashCounts[meal] = sizeByMeal[meal].dishwash));
+      washDay = window.App.WashSchedule.computeWashDay(
+        snapshot.washState,
+        dayMembers,
+        dishwashCounts,
+        availableForMeal,
+        mealsToday
+      );
+      (washDay.warnings || []).forEach((w) => warnings.push(w));
+    }
 
-    const washDay = window.App.WashSchedule.computeWashDay(
-      snapshot.washState,
-      dayMembers,
-      dishwashCounts,
-      availableForMeal,
-      mealsToday
-    );
-    (washDay.warnings || []).forEach((w) => warnings.push(w));
-
-    // 撤收要知道每一餐誰在洗碗（洗碗的人那一餐不排撤收），所以一定要排在洗碗之後
-    const cleanupDay = window.App.CleanupSchedule.computeCleanupDay(
-      dayMembers,
-      snapshot.dutyCounts,
-      availableForMeal,
-      washDay.assignments,
-      mealsToday
-    );
+    /*
+     * 撤收。現在是「單純照號碼輪」：一條隊伍 263 → 新進五位 → 261，
+     * 每餐照人數階梯拿幾個，早接午接晚接隔天。不管洗碗、不管誰免排。
+     *
+     * 舊的那一套（最小成本最大流 ＋ 四條限制）留在 cleanupSchedule.js 沒有刪，
+     * 三餐勤務恢復的時候直接用得上。
+     */
+    let cleanupDay;
+    let newCleanupState = snapshot.cleanupState || { nextStartId: null };
+    if (St.MEAL_DUTIES_ENABLED) {
+      // 撤收要知道每一餐誰在洗碗（洗碗的人那一餐不排撤收），所以一定要排在洗碗之後
+      cleanupDay = window.App.CleanupSchedule.computeCleanupDay(
+        dayMembers,
+        snapshot.dutyCounts,
+        availableForMeal,
+        washDay.assignments,
+        mealsToday
+      );
+    } else {
+      cleanupDay = window.App.CleanupSchedule.computeCleanupRotation(
+        newCleanupState,
+        dayMembers,
+        availableForMeal,
+        mealsToday
+      );
+      newCleanupState = cleanupDay.newCleanupState;
+    }
     (cleanupDay.warnings || []).forEach((w) => warnings.push(w));
 
     /*
@@ -219,112 +252,145 @@ window.App = window.App || {};
       if (countsThisDay) incrementCounts(newDutyCounts, ids, key);
     };
     const meals = {};
-    mealsToday.forEach((meal) => {
-      const dishwashIds = washDay.assignments[meal] || [];
-      const present = presentByMeal[meal];
-      // 送便當也要看那一餐在不在（退伍當天晚上就不算他了）
-      const deliveryIds = present.filter((m) => m.fixedRole === "delivery").map((m) => m.id);
-      const excludeIds = new Set(dishwashIds.concat(deliveryIds));
-      const otherPool = present.filter((m) => !excludeIds.has(m.id));
-      /*
-       * 有人這一餐是固定做某一項的（招員中午固定廚餘），先讓他們佔位，
-       * 剩下的名額才丟進流量給其他人輪。
-       */
-      const fixedByDuty = {
-        foodwaste: otherPool.filter((m) => St.isFixedFoodwasteAt(m, meal)).map((m) => m.id),
-      };
-      const otherAssign = window.App.OtherDuties.assignOtherDuties(
-        otherPool,
-        newDutyCounts,
-        sizeByMeal[meal],
-        fixedByDuty
-      );
-      /*
-       * 固定要做那一項的人比名額還多，代表對照表的名額跟不上人數了。
-       * 多出來的人會被別的勤務吸收，不會沒事做，但值得講一聲。
-       */
-      Object.keys(otherAssign.overflow || {}).forEach((key) => {
-        const extra = otherAssign.overflow[key];
-        if (!extra) return;
-        warnings.push(
-          `${St.MEAL_LABELS[meal]}：固定做${St.DUTY_SHORT_LABELS[key]}的人比名額多 ${extra} 位，` +
-            `多出來的這一餐改做其他勤務。可到「勤務設定」把這一列的${St.DUTY_SHORT_LABELS[key]}人數調高。`
+
+    /*
+     * ── 三餐勤務（2026/08/08 起停用）─────────────────────────────────
+     * 洗碗、廚餘、擦桌子、清地板、送便當、打菜流程、抬便當都改由伙房班長
+     * 現場直接律定人選，程式不再排。整段原封不動包在旗標裡、一行都沒刪，
+     * 要恢復就把 State.MEAL_DUTIES_ENABLED 改回 true。
+     */
+    if (St.MEAL_DUTIES_ENABLED) {
+      mealsToday.forEach((meal) => {
+        const dishwashIds = washDay.assignments[meal] || [];
+        const present = presentByMeal[meal];
+        // 送便當也要看那一餐在不在（退伍當天晚上就不算他了）
+        const deliveryIds = present.filter((m) => m.fixedRole === "delivery").map((m) => m.id);
+        const excludeIds = new Set(dishwashIds.concat(deliveryIds));
+        const otherPool = present.filter((m) => !excludeIds.has(m.id));
+        /*
+         * 有人這一餐是固定做某一項的（招員中午固定廚餘），先讓他們佔位，
+         * 剩下的名額才丟進流量給其他人輪。
+         */
+        const fixedByDuty = {
+          foodwaste: otherPool.filter((m) => St.isFixedFoodwasteAt(m, meal)).map((m) => m.id),
+        };
+        const otherAssign = window.App.OtherDuties.assignOtherDuties(
+          otherPool,
+          newDutyCounts,
+          sizeByMeal[meal],
+          fixedByDuty
         );
+        /*
+         * 固定要做那一項的人比名額還多，代表對照表的名額跟不上人數了。
+         * 多出來的人會被別的勤務吸收，不會沒事做，但值得講一聲。
+         */
+        Object.keys(otherAssign.overflow || {}).forEach((key) => {
+          const extra = otherAssign.overflow[key];
+          if (!extra) return;
+          warnings.push(
+            `${St.MEAL_LABELS[meal]}：固定做${St.DUTY_SHORT_LABELS[key]}的人比名額多 ${extra} 位，` +
+              `多出來的這一餐改做其他勤務。可到「勤務設定」把這一列的${St.DUTY_SHORT_LABELS[key]}人數調高。`
+          );
+        });
+
+        /*
+         * 抬便當分三段（使用者 8/7 訂正的流程）：
+         *   抬下車  隨時到、隨時搬，當餐在場的人全部一起（含送便當的兩位）
+         *   抬上車  同上，也是全員一起
+         *   抬上樓  **集合之後分出來的那一批：倒廚餘以外的所有人**
+         *
+         * 抬上樓不是名冊上的固定分組，是推導出來的——打完自己的便當、全體集合、
+         * 念完班表之後當場分兩批：排到廚餘的人去倒廚餘，其餘所有人把便當抬上樓。
+         * 送便當的兩位那一餐在外面跑便當，所以不算在抬上樓裡（抬下車、上車是隨時
+         * 進行的，他們還在，所以那兩行含他們）。
+         */
+        const carryDownIds = present.map((m) => m.id);
+        const carryVehicleIds = present.map((m) => m.id);
+        const foodwasteSet = new Set(otherAssign.foodwaste);
+        const carryUpstairsIds = present
+          .filter((m) => !deliveryIds.includes(m.id) && !foodwasteSet.has(m.id))
+          .map((m) => m.id);
+
+        /*
+         * 對照表的每一列加上送便當兩位應該剛好等於出勤人數。對不起來的時候不會有人
+         * 完全沒事（大家都要抬便當），但代表有人那一餐只抬便當、沒有分到其他勤務，
+         * 通常是對照表沒跟上人數變動，所以提醒一下。
+         */
+        const cfg = sizeByMeal[meal];
+        const spare = present.length - deliveryIds.length - (cfg.dishwash + cfg.foodwaste + cfg.wipe + cfg.floor);
+        if (spare > 0) {
+          warnings.push(
+            `${St.MEAL_LABELS[meal]}出勤 ${present.length} 人，但勤務設定只排掉 ${present.length - spare} 人，` +
+              `有 ${spare} 人只抬便當、沒有其他勤務。可到「勤務設定」把這一列的人數補齊。`
+          );
+        }
+
+        // 打菜流程：打完菜之後才做勤務，兩者是同一批人、不同時段
+        const serving = window.App.ServingLine.computeServingLine(
+          present,
+          newDutyCounts,
+          St.menuSizeFor(dateStr, meal),
+          St.servesRiceAt(meal)
+        );
+        serving.warnings.forEach((w) => warnings.push(`${St.MEAL_LABELS[meal]}：${w}`));
+
+        meals[meal] = {
+          serving: serving.assignments,
+          dishes: serving.dishes,
+          countMergedIntoLid: serving.countMergedIntoLid,
+          dishwash: dishwashIds,
+          foodwaste: otherAssign.foodwaste,
+          carryDown: carryDownIds,
+          carryVehicle: carryVehicleIds,
+          carryUpstairs: carryUpstairsIds,
+          floor: otherAssign.floor,
+          wipe: otherAssign.wipe,
+          delivery: deliveryIds,
+          cleanup: (cleanupDay.assignments[meal] || []).filter((id) => availableForMeal(id, meal)),
+          // 這一餐去採買所以人不在，顯示時要跟「有空幫忙包便當」區分開
+          absent: dayMembers.filter((m) => isOffForShopping(m.id, meal)).map((m) => m.id),
+          // 這一餐已經離營（退伍當天的晚餐），文字班表要寫「已離營」而不是「休息」
+          departed: dayMembers.filter((m) => !St.isActiveOn(m, dateStr, meal)).map((m) => m.id),
+        };
+
+        const mealOverride = override && override.meals && override.meals[meal];
+        if (mealOverride) applyMealOverride(meals[meal], mealOverride, dayMembers, St, dateStr, warnings, meal);
+
+        bump(meals[meal].serving.serveDish || [], "serveDish");
+        bump(meals[meal].serving.lid || [], "lid");
+        bump(meals[meal].serving.boxing || [], "boxing");
+        bump(meals[meal].dishwash, "dishwash");
+        bump(meals[meal].foodwaste, "foodwaste");
+        bump(meals[meal].floor, "floor");
+        bump(meals[meal].wipe, "wipe");
+        bump(meals[meal].cleanup, "cleanup");
+        bump(meals[meal].cleanup, window.App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]);
       });
+    }
 
-      /*
-       * 抬便當分三段（使用者 8/7 訂正的流程）：
-       *   抬下車  隨時到、隨時搬，當餐在場的人全部一起（含送便當的兩位）
-       *   抬上車  同上，也是全員一起
-       *   抬上樓  **集合之後分出來的那一批：倒廚餘以外的所有人**
-       *
-       * 抬上樓不是名冊上的固定分組，是推導出來的——打完自己的便當、全體集合、
-       * 念完班表之後當場分兩批：排到廚餘的人去倒廚餘，其餘所有人把便當抬上樓。
-       * 送便當的兩位那一餐在外面跑便當，所以不算在抬上樓裡（抬下車、上車是隨時
-       * 進行的，他們還在，所以那兩行含他們）。
-       */
-      const carryDownIds = present.map((m) => m.id);
-      const carryVehicleIds = present.map((m) => m.id);
-      const foodwasteSet = new Set(otherAssign.foodwaste);
-      const carryUpstairsIds = present
-        .filter((m) => !deliveryIds.includes(m.id) && !foodwasteSet.has(m.id))
-        .map((m) => m.id);
-
-      /*
-       * 對照表的每一列加上送便當兩位應該剛好等於出勤人數。對不起來的時候不會有人
-       * 完全沒事（大家都要抬便當），但代表有人那一餐只抬便當、沒有分到其他勤務，
-       * 通常是對照表沒跟上人數變動，所以提醒一下。
-       */
-      const cfg = sizeByMeal[meal];
-      const spare = present.length - deliveryIds.length - (cfg.dishwash + cfg.foodwaste + cfg.wipe + cfg.floor);
-      if (spare > 0) {
-        warnings.push(
-          `${St.MEAL_LABELS[meal]}出勤 ${present.length} 人，但勤務設定只排掉 ${present.length - spare} 人，` +
-            `有 ${spare} 人只抬便當、沒有其他勤務。可到「勤務設定」把這一列的人數補齊。`
-        );
-      }
-
-      // 打菜流程：打完菜之後才做勤務，兩者是同一批人、不同時段
-      const serving = window.App.ServingLine.computeServingLine(
-        present,
-        newDutyCounts,
-        St.menuSizeFor(dateStr, meal),
-        St.servesRiceAt(meal)
-      );
-      serving.warnings.forEach((w) => warnings.push(`${St.MEAL_LABELS[meal]}：${w}`));
-
-      meals[meal] = {
-        serving: serving.assignments,
-        dishes: serving.dishes,
-        countMergedIntoLid: serving.countMergedIntoLid,
-        dishwash: dishwashIds,
-        foodwaste: otherAssign.foodwaste,
-        carryDown: carryDownIds,
-        carryVehicle: carryVehicleIds,
-        carryUpstairs: carryUpstairsIds,
-        floor: otherAssign.floor,
-        wipe: otherAssign.wipe,
-        delivery: deliveryIds,
-        cleanup: (cleanupDay.assignments[meal] || []).filter((id) => availableForMeal(id, meal)),
-        // 這一餐去採買所以人不在，顯示時要跟「有空幫忙包便當」區分開
-        absent: dayMembers.filter((m) => isOffForShopping(m.id, meal)).map((m) => m.id),
-        // 這一餐已經離營（退伍當天的晚餐），文字班表要寫「已離營」而不是「休息」
-        departed: dayMembers.filter((m) => !St.isActiveOn(m, dateStr, meal)).map((m) => m.id),
-      };
-
-      const mealOverride = override && override.meals && override.meals[meal];
-      if (mealOverride) applyMealOverride(meals[meal], mealOverride, dayMembers, St, dateStr, warnings, meal);
-
-      bump(meals[meal].serving.serveDish || [], "serveDish");
-      bump(meals[meal].serving.lid || [], "lid");
-      bump(meals[meal].serving.boxing || [], "boxing");
-      bump(meals[meal].dishwash, "dishwash");
-      bump(meals[meal].foodwaste, "foodwaste");
-      bump(meals[meal].floor, "floor");
-      bump(meals[meal].wipe, "wipe");
-      bump(meals[meal].cleanup, "cleanup");
-      bump(meals[meal].cleanup, window.App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]);
-    });
+    /*
+     * ── 現在真正在排的三餐勤務：只剩撤收 ─────────────────────────────
+     * 撤收雖然分早／午／晚，但它是唯一一項還由程式排的，所以顯示時併進
+     * 「全日勤務」那張表（見 State.DAILY_DUTY_ROWS）。
+     */
+    if (!St.MEAL_DUTIES_ENABLED) {
+      mealsToday.forEach((meal) => {
+        meals[meal] = {
+          cleanup: (cleanupDay.assignments[meal] || []).filter((id) => availableForMeal(id, meal)),
+          // 這一餐去採買所以人不在
+          absent: dayMembers.filter((m) => isOffForShopping(m.id, meal)).map((m) => m.id),
+          // 這一餐已經離營（退伍當天的晚餐）
+          departed: dayMembers.filter((m) => !St.isActiveOn(m, dateStr, meal)).map((m) => m.id),
+        };
+        // 鎖定的日子照公布版走
+        const mealOverride = override && override.meals && override.meals[meal];
+        if (mealOverride && Array.isArray(mealOverride.cleanup)) {
+          meals[meal].cleanup = mealOverride.cleanup.slice();
+        }
+        bump(meals[meal].cleanup, "cleanup");
+        bump(meals[meal].cleanup, window.App.CleanupSchedule.PER_MEAL_COUNT_KEY[meal]);
+      });
+    }
 
     /*
      * 換水是早餐撤收「之後」才做的，所以要等撤收排完，而且不能排到同一批人。
@@ -416,6 +482,7 @@ window.App = window.App || {};
       newWashState,
       newWaterState: waterDay.newWaterState,
       newLaundryState,
+      newCleanupState,
       newDutyCounts,
     };
   }
@@ -431,6 +498,7 @@ window.App = window.App || {};
       washState: state.washState,
       laundryState: state.laundryState,
       waterState: state.waterState,
+      cleanupState: state.cleanupState,
       dutySizeTable: state.dutySizeTable,
       shoppingByDate: state.shoppingByDate,
       toiletByDate: state.toiletByDate,
@@ -459,12 +527,14 @@ window.App = window.App || {};
       running.washState = result.newWashState;
       running.waterState = result.newWaterState;
       running.laundryState = result.newLaundryState;
+      running.cleanupState = result.newCleanupState;
     });
 
     state.dutyCounts = running.dutyCounts;
     state.washState = running.washState;
     state.waterState = running.waterState;
     state.laundryState = running.laundryState;
+    state.cleanupState = running.cleanupState;
 
     state.committedDates = dates.filter((d) => !failed.some((f) => f.date === d));
     window.App.State.save();
@@ -480,6 +550,7 @@ window.App = window.App || {};
       washState: state.washState,
       laundryState: state.laundryState,
       waterState: state.waterState,
+      cleanupState: state.cleanupState,
       dutySizeTable: state.dutySizeTable,
       shoppingByDate: state.shoppingByDate,
       toiletByDate: state.toiletByDate,
@@ -503,6 +574,7 @@ window.App = window.App || {};
       washState: window.App.State.defaultWashState(),
       laundryState: window.App.State.defaultLaundryState(),
       waterState: window.App.State.defaultWaterState(),
+      cleanupState: window.App.State.defaultCleanupState(),
     };
     state.members.forEach((m) => (snapshot.dutyCounts[m.id] = window.App.State.emptyDutyCount()));
 
@@ -517,6 +589,7 @@ window.App = window.App || {};
         snapshot.washState = result.newWashState;
         snapshot.waterState = result.newWaterState;
         snapshot.laundryState = result.newLaundryState;
+        snapshot.cleanupState = result.newCleanupState;
       });
 
     return snapshot;

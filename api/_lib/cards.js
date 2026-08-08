@@ -41,6 +41,9 @@ const CARD_COLORS = {
   dinner: "#77455E",
   daily: "#725D4B",
   fairness: "#39424D",
+  // 班長每日通知那三種
+  plan: "#2F5E63",
+  heat: "#8A4A2E",
 };
 
 // 流程卡的細節用色：步驟編號的圓底用主色，說明文字比內文再淡一階
@@ -324,6 +327,175 @@ function fairnessBubble(App, dateStr, cells, imageUrl, fullUrl) {
   };
 }
 
+/*
+ * ── 班長每日通知的三種卡片 ────────────────────────────────────────
+ * 內容是班長貼在群組裡、機器人解析存起來的（見 js/briefing.js）。
+ */
+
+/** 行動準據：早／午／晚各一段時間表 */
+function planBubble(App, dateStr, plan) {
+  const TF = App.TextFormat;
+  const St = App.State;
+  const color = CARD_COLORS.plan;
+  const contents = [];
+
+  St.MEAL_KEYS.forEach((meal) => {
+    const rows = (plan || {})[meal] || [];
+    if (!rows.length) return;
+    if (contents.length) contents.push({ type: "separator", margin: "xl", color: "#f0e4d8" });
+    contents.push(sectionTag(St.MEAL_LABELS[meal], color));
+    rows.forEach((row) => {
+      contents.push({
+        type: "box",
+        layout: "baseline",
+        margin: "md",
+        spacing: "md",
+        contents: [
+          // 時間欄固定寬度，幾行的時間才會對齊成一直排
+          text(row.time, { size: "sm", weight: "bold", color: color, flex: 4 }),
+          text(row.what, { size: "sm", color: INK, flex: 7 }),
+        ],
+      });
+    });
+  });
+
+  if (!contents.length) contents.push(text("班長還沒貼今天的行動準據。", { size: "sm", color: MUTED }));
+
+  return {
+    type: "bubble",
+    size: "giga",
+    header: header("行動準據", `${TF.formatDateHeader(dateStr)}　三餐時間流程`, color),
+    body: { type: "box", layout: "vertical", paddingAll: "14px", contents },
+  };
+}
+
+/** 熱追：哪一台車送哪幾個點 */
+function heatBubble(App, dateStr, heat) {
+  const TF = App.TextFormat;
+  const color = CARD_COLORS.heat;
+  const rows = heat || [];
+  const contents = [
+    text("來載便當的車，車尾號 → 送哪幾個點", { size: "xxs", color: MUTED }),
+    { type: "separator", margin: "lg", color: "#f0e4d8" },
+  ];
+
+  if (!rows.length) {
+    contents.push(text("班長還沒貼今天的熱追。", { size: "sm", color: MUTED, margin: "lg" }));
+  }
+  rows.forEach((row) => {
+    contents.push({
+      type: "box",
+      layout: "horizontal",
+      margin: "lg",
+      spacing: "md",
+      contents: [
+        {
+          type: "box",
+          layout: "vertical",
+          flex: 0,
+          width: "46px",
+          cornerRadius: "6px",
+          backgroundColor: color,
+          paddingAll: "4px",
+          justifyContent: "center",
+          contents: [text(row.car, { size: "sm", weight: "bold", color: "#ffffff", align: "center" })],
+        },
+        {
+          type: "box",
+          layout: "vertical",
+          flex: 1,
+          justifyContent: "center",
+          contents: [text(row.spots.join("・") || "（沒寫地點）", { size: "sm", color: INK })],
+        },
+      ],
+    });
+  });
+
+  return {
+    type: "bubble",
+    size: "giga",
+    header: header("熱追", `${TF.formatDateHeader(dateStr)}　送便當的車`, color),
+    body: { type: "box", layout: "vertical", paddingAll: "14px", contents },
+  };
+}
+
+/** 便當數量：一餐一張，每一連隊一行，最下面是合計 */
+function countsBubble(App, dateStr, mealKey, rows) {
+  const TF = App.TextFormat;
+  const St = App.State;
+  const color = CARD_COLORS[mealKey];
+  const list = rows || [];
+  const total = App.Briefing.mealTotal(list);
+  const contents = [];
+
+  if (!list.length) {
+    contents.push(text("班長還沒貼這一餐的便當數量。", { size: "sm", color: MUTED }));
+  }
+  list.forEach((row) => {
+    contents.push({
+      type: "box",
+      layout: "horizontal",
+      margin: "md",
+      spacing: "sm",
+      contents: [
+        {
+          type: "box",
+          layout: "vertical",
+          flex: 5,
+          contents: [
+            text(row.unit, { size: "sm", weight: "bold", color: INK }),
+            row.place
+              ? text(row.place, { size: "xxs", color: MUTED, margin: "xs" })
+              : { type: "filler" },
+          ],
+        },
+        {
+          type: "box",
+          layout: "vertical",
+          flex: 3,
+          justifyContent: "center",
+          contents: [
+            text(`${row.count}`, { size: "lg", weight: "bold", color: color, align: "end" }),
+            row.veg
+              ? text(`＋${row.veg} 素`, { size: "xxs", color: MUTED, align: "end", margin: "xs" })
+              : { type: "filler" },
+          ],
+        },
+      ],
+    });
+  });
+
+  if (list.length) {
+    contents.push({ type: "separator", margin: "xl", color: "#f0e4d8" });
+    contents.push({
+      type: "box",
+      layout: "horizontal",
+      margin: "lg",
+      contents: [
+        text("合計", { size: "sm", weight: "bold", color: INK, flex: 5 }),
+        text(`${total.count}${total.veg ? `＋${total.veg} 素` : ""}`, {
+          size: "lg",
+          weight: "bold",
+          color: color,
+          align: "end",
+          flex: 3,
+        }),
+      ],
+    });
+  }
+
+  return {
+    type: "bubble",
+    size: "giga",
+    header: header(
+      `${St.MEAL_LABELS[mealKey]}便當數`,
+      `${TF.formatDateHeader(dateStr)}　${list.length ? `共 ${total.count} 個` : "尚未提供"}`,
+      color
+    ),
+    body: { type: "box", layout: "vertical", paddingAll: "14px", contents },
+  };
+}
+
 /**
  * 組出整組輪播。
  * @returns {{type:"flex", altText:string, contents:{type:"carousel", contents:object[]}}}
@@ -331,26 +503,45 @@ function fairnessBubble(App, dateStr, cells, imageUrl, fullUrl) {
 function buildCarousel(App, dateStr, schedule, options) {
   const opts = options || {};
   const names = App.TextFormat.displayNameMap();
+  const St = App.State;
 
-  // 先講流程，再講不分餐別的全日勤務，然後才是三餐與個人分工
-  const bubbles = [flowBubble(App), dailyBubble(App, dateStr, schedule, names)];
-
-  App.TextFormat.mealKeysOf(dateStr, schedule).forEach((mealKey) =>
-    bubbles.push(mealBubble(App, dateStr, schedule, mealKey, names))
-  );
   /*
-   * 沒有人的那一組就不發卡片（旅部連 8/7 起調走了）。
-   * 空卡片只是讓人多滑一次，還會以為是不是漏掉誰。
+   * ⭐ 2026/08/08 起的卡片組（使用者指定，共六張）：
+   *   1  全日勤務   掃廁所、換水、洗衣籃、早／午／晚撤收——程式唯一還在排的東西
+   *   2  行動準據   班長貼的三餐時間流程
+   *   3  熱追       班長貼的車尾號 → 送哪幾個點
+   *   4~6 早／午／晚便當數
+   *
+   * 打飯流程、三餐勤務、個人分工、公平性總覽都不發了（三餐勤務改由班長現場律定，
+   * 那幾張卡片已經沒有內容）。組卡片的函式全部留著沒刪，要恢復把下面那段
+   * 註解解開就好。
    */
-  PERSON_CARDS.forEach((card) => {
-    const has = App.State.activeMembersOn(dateStr).some(
-      (m) => m.cohort === card.cohort && m.seq >= card.from && m.seq <= card.to
-    );
-    if (has) bubbles.push(personBubble(App, dateStr, schedule, names, card));
+  const briefing = opts.briefing || {};
+  const bubbles = [
+    dailyBubble(App, dateStr, schedule, names),
+    planBubble(App, dateStr, briefing.plan),
+    heatBubble(App, dateStr, briefing.heat),
+  ];
+  St.MEAL_KEYS.forEach((mealKey) => {
+    bubbles.push(countsBubble(App, dateStr, mealKey, (briefing.counts || {})[mealKey]));
   });
-  if (opts.imageUrl && opts.fullUrl) {
-    bubbles.push(fairnessBubble(App, dateStr, opts.cells || [], opts.imageUrl, opts.fullUrl));
-  }
+
+  /*
+   * ── 三餐勤務停用之前發的那幾張（保留，旗標打開就會回來）──────────
+   * bubbles.unshift(flowBubble(App));
+   * App.TextFormat.mealKeysOf(dateStr, schedule).forEach((mealKey) =>
+   *   bubbles.push(mealBubble(App, dateStr, schedule, mealKey, names))
+   * );
+   * PERSON_CARDS.forEach((card) => {
+   *   const has = App.State.activeMembersOn(dateStr).some(
+   *     (m) => m.cohort === card.cohort && m.seq >= card.from && m.seq <= card.to
+   *   );
+   *   if (has) bubbles.push(personBubble(App, dateStr, schedule, names, card));
+   * });
+   * if (opts.imageUrl && opts.fullUrl) {
+   *   bubbles.push(fairnessBubble(App, dateStr, opts.cells || [], opts.imageUrl, opts.fullUrl));
+   * }
+   */
 
   const suffix = opts.preview ? "（尚未確定紀錄，僅供預覽）" : "";
   return {

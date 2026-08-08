@@ -60,6 +60,8 @@ window.App.UI = window.App.UI || {};
       mealKey,
       labelNameMap()
     );
+    // 三餐勤務停用之後那一餐一段都沒有，整張卡片不用畫
+    if (!block.sections.length) return "";
     const dishes = mealData.dishes != null ? mealData.dishes : 0;
     const sections = block.sections
       .map(
@@ -84,13 +86,24 @@ window.App.UI = window.App.UI || {};
       </div>`;
   }
 
-  function dailyCard(daily) {
-    const rows = window.App.State.DAILY_DUTY_ROWS.filter((duty) => ((daily || {})[duty] || []).length);
+  /*
+   * 全日勤務。撤收的資料在 meals[meal].cleanup（它本來就分餐別），
+   * 但顯示上跟掃廁所、換水、洗衣籃放同一張卡最好對，所以整份班表都要傳進來。
+   */
+  function dailyCard(schedule) {
+    const S = window.App.State;
+    const daily = schedule.daily || {};
+    const idsOf = (duty) => {
+      const meal = S.CLEANUP_ROW_MEAL[duty];
+      if (meal) return ((schedule.meals || {})[meal] || {}).cleanup || [];
+      return daily[duty] || [];
+    };
+    const rows = S.DAILY_DUTY_ROWS.filter((duty) => idsOf(duty).length);
     if (!rows.length) return "";
     return `
       <div class="meal-card">
         <h3>全日</h3>
-        ${rows.map((duty) => dutyLine(duty, daily[duty])).join("")}
+        ${rows.map((duty) => dutyLine(duty, idsOf(duty))).join("")}
       </div>`;
   }
 
@@ -181,7 +194,7 @@ window.App.UI = window.App.UI || {};
         ${window.App.TextFormat.mealKeysOf(schedule.date || selectedDate, schedule)
           .map((meal) => mealCard(schedule.date || selectedDate, meal, schedule.meals[meal]))
           .join("")}
-        ${dailyCard(schedule.daily)}
+        ${dailyCard(schedule)}
       </div>
     `;
   }

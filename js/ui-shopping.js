@@ -102,9 +102,11 @@ window.App.UI = window.App.UI || {};
     if (toiletId) chips.push(`<span class="chip chip-263">🚻 ${escapeHtml(names[toiletId] || toiletId)}</span>`);
 
     return `
-      <details class="card shopping-day" data-date="${dateStr}"${
-        picked.length || toiletId || openDates.has(dateStr) ? " open" : ""
-      }>
+      <!--
+        預設全部收起來。摘要那一行已經看得到「採買 N 人」跟掃廁所是誰，
+        指定過就自動展開的話 14 天有 8 天是開的，要捲很久才找得到想改的那天。
+      -->
+      <details class="card shopping-day" data-date="${dateStr}"${openDates.has(dateStr) ? " open" : ""}>
         <summary style="cursor:pointer">
           <strong>${dateStr.slice(5)}（${R.WEEKDAY_LABELS[wd].slice(1)}）</strong>
           ${chips.length ? chips.join("　") : `<span class="hint">還沒指定</span>`}
@@ -152,6 +154,8 @@ window.App.UI = window.App.UI || {};
   }
 
   function render() {
+    if (!container()) return; // 容器被搬走或還沒建立時安靜結束
+
     const S = window.App.State;
     const state = S.get();
     const byDate = state.shoppingByDate || {};
@@ -180,33 +184,27 @@ window.App.UI = window.App.UI || {};
       .join("");
 
     container().innerHTML = `
-      <div class="card">
-        <h2>採買・掃廁所</h2>
+      <details class="card collapse-card">
+        <summary><span class="collapse-title">🛒 採買・🚻 掃廁所</span><span class="hint">這兩項是當下才決定的，一天一天指定</span></summary>
         <p class="hint">
-          這兩項都不是程式排的，是當下才決定的，所以在這裡一天一天指定。
+          <strong>🛒 採買</strong>：沒有固定星期、也沒有固定人數，哪天要採買就展開那一天勾人。
+          勾到的人<strong>那天早餐、中餐完全不排</strong>，晚上才歸隊，撤收名額會自動跟著少。
         </p>
         <p class="hint">
-          <strong>🛒 採買</strong>：沒有固定星期、也沒有固定人數，哪天要採買就展開那一天勾人，一天勾幾個都可以。
-          勾到的人<strong>那天早餐、中餐完全不排</strong>（打菜、勤務、撤收、換水都不排），晚上才歸隊，
-          班表的人數、洗碗佇列、撤收名額會自動跟著少。集合時間會印在文字班表上。
+          <strong>🚻 掃廁所</strong>：0900 與 2100 兩個時段、同一位包辦，爬梯子抽到誰就選誰。
+          這是三餐之外的時段，<strong>不影響他當天其他勤務</strong>；那天要採買的人不會出現在選單裡。
         </p>
-        <p class="hint">
-          <strong>🚻 掃廁所</strong>：0900 與 2100 兩個時段，同一位包辦，爬梯子抽到誰就選誰。
-          這是三餐之外的時段，<strong>不影響他當天其他勤務</strong>。
-          那天要去採買的人不會出現在選單裡（他 9 點還在外面）。
-        </p>
-      </div>
+      </details>
       ${dayCards}
-      <div class="card">
-        <h2>次數（從 ${S.COUNTS_FROM} 起算）</h2>
-        <p class="hint">這兩項是人工指定的，不列進公平性總覽的圓圖，但次數照樣記著，方便你抽的時候避開已經做過的人。</p>
+      <details class="card collapse-card">
+        <summary><span class="collapse-title">📈 次數</span><span class="hint">從 ${S.COUNTS_FROM} 起算，抽的時候可以避開做過的人</span></summary>
         <div class="table-scroll">
         <table>
           <thead><tr><th>人員</th><th class="num">🛒 採買</th><th class="num">🚻 掃廁所</th></tr></thead>
           <tbody>${countRows}</tbody>
         </table>
         </div>
-      </div>
+      </details>
     `;
 
     bindEvents();

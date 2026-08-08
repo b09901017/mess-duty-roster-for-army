@@ -16,6 +16,8 @@ window.App.UI = window.App.UI || {};
   };
 
   function render() {
+    if (!container()) return; // 容器被搬走或還沒建立時安靜結束
+
     const state = window.App.State.get();
     const table = window.App.DutySizeConfig.sortTable(state.dutySizeTable);
     const activeCount = window.App.State.activeMembers().length;

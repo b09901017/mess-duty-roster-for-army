@@ -35,6 +35,8 @@ window.App.UI = window.App.UI || {};
   }
 
   function render() {
+    if (!container()) return; // 容器被搬走或還沒建立時安靜結束
+
     const cfg = window.App.CloudSync.getConfig();
     const configText = cfg.firebaseConfig ? JSON.stringify(cfg.firebaseConfig, null, 2) : "";
 

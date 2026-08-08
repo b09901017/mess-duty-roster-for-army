@@ -2,7 +2,8 @@
 (function () {
   "use strict";
 
-  const TABS = ["schedule", "textschedule", "roster", "dutyconfig", "shopping", "dashboard", "cloud"];
+  // 四個分頁；公平性、雲端同步、備份、進階設定都收在「更多」裡面
+  const TABS = ["schedule", "shopping", "roster", "more"];
 
   function renderAll() {
     window.App.UI.Roster.render();
@@ -12,6 +13,15 @@
     window.App.UI.Shopping.render();
     window.App.UI.Dashboard.render();
     window.App.UI.Cloud.render();
+  }
+
+  /*
+   * 切分頁時把畫面捲回最上面。
+   * 手機上從很長的名冊切到班表，如果停在原本的捲動位置會看到半截內容，
+   * 很容易以為「怎麼是空的」。
+   */
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: "auto" });
   }
   window.App.renderAll = renderAll;
 
@@ -29,6 +39,7 @@
       const btn = e.target.closest(".tab-btn");
       if (!btn) return;
       showTab(btn.dataset.tab);
+      scrollToTop();
     });
   }
 

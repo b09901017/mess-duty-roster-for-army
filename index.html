@@ -10,36 +10,67 @@
 <div class="app-shell">
   <header class="app-header">
     <h1>🍚 值星公差小幫手</h1>
-    <p class="subtitle">261 梯 × 263 梯 · 公平自動排勤務</p>
   </header>
 
+  <!--
+    分頁改成四個等寬的（圖示在上、字在下），375px 一屏放得下、不用左右滑。
+    以前七個要橫向捲動，一半的分頁藏在畫面外，這是「太多太雜」最主要的來源。
+    文字班表併進「班表」、勤務設定與雲端同步收進「更多」。
+  -->
   <nav class="tab-bar" id="tab-bar">
-    <button class="tab-btn active" data-tab="schedule">📅 產生班表</button>
-    <button class="tab-btn" data-tab="textschedule">📝 文字班表</button>
-    <button class="tab-btn" data-tab="roster">👥 名冊</button>
-    <button class="tab-btn" data-tab="dutyconfig">⚙️ 勤務設定</button>
-    <button class="tab-btn" data-tab="shopping">🛒 採買・掃廁所</button>
-    <button class="tab-btn" data-tab="dashboard">📊 公平性總覽</button>
-    <button class="tab-btn" data-tab="cloud">☁️ 雲端同步</button>
+    <button class="tab-btn active" data-tab="schedule"><span class="tab-icon">📅</span>班表</button>
+    <button class="tab-btn" data-tab="shopping"><span class="tab-icon">🛒</span>指派</button>
+    <button class="tab-btn" data-tab="roster"><span class="tab-icon">👥</span>名冊</button>
+    <button class="tab-btn" data-tab="more"><span class="tab-icon">⚙️</span>更多</button>
   </nav>
 
   <main class="tab-content">
     <section id="tab-schedule" class="tab-panel active"></section>
-    <section id="tab-textschedule" class="tab-panel"></section>
-    <section id="tab-roster" class="tab-panel"></section>
-    <section id="tab-dutyconfig" class="tab-panel"></section>
     <section id="tab-shopping" class="tab-panel"></section>
-    <section id="tab-dashboard" class="tab-panel"></section>
-    <section id="tab-cloud" class="tab-panel"></section>
+    <section id="tab-roster" class="tab-panel"></section>
+
+    <!--
+      「更多」是偶爾才用得到的東西，全部收合，預設只看得到四行標題。
+      裡面各區塊沿用原本的容器 id，所以 ui-dashboard.js／ui-cloud.js／
+      ui-dutyconfig.js 都不用改寫，只是搬了位置。
+    -->
+    <section id="tab-more" class="tab-panel">
+      <details class="card collapse-card">
+        <summary><span class="collapse-title">📊 公平性總覽</span><span class="hint">撤收、換水、洗衣籃分得平不平均</span></summary>
+        <div id="tab-dashboard"></div>
+      </details>
+
+      <details class="card collapse-card">
+        <summary><span class="collapse-title">☁️ 雲端同步</span><span class="hint">換手機用的備份，也是 LINE 機器人讀的那份</span></summary>
+        <div id="tab-cloud"></div>
+      </details>
+
+      <details class="card collapse-card">
+        <summary><span class="collapse-title">🗄️ 備份檔</span><span class="hint">匯出／匯入 JSON</span></summary>
+        <p class="hint">資料存在這台裝置的瀏覽器裡。雲端同步已經會自動備份，這裡是額外再存一份檔案。</p>
+        <div class="row">
+          <button id="export-btn" type="button" class="ghost-btn">匯出備份</button>
+          <label class="ghost-btn file-label">
+            匯入備份
+            <input type="file" id="import-input" accept="application/json" hidden>
+          </label>
+        </div>
+      </details>
+
+      <details class="card collapse-card">
+        <summary><span class="collapse-title">🧰 進階設定</span><span class="hint">三餐勤務停用中，目前用不到</span></summary>
+        <div class="warning-box">
+          ⚠️ 這一區管的是<strong>洗碗／廚餘／擦桌子／清地板的人數</strong>與<strong>每餐菜量</strong>。
+          三餐勤務現在由伙房班長現場律定、程式不排，所以<strong>改這裡不會有任何效果</strong>，
+          等哪天三餐勤務恢復才用得到。
+        </div>
+        <div id="tab-dutyconfig"></div>
+      </details>
+    </section>
   </main>
 
   <footer class="app-footer">
-    <span>資料儲存在本機瀏覽器（localStorage）</span>
-    <button id="export-btn" type="button" class="ghost-btn">匯出備份</button>
-    <label class="ghost-btn file-label">
-      匯入備份
-      <input type="file" id="import-input" accept="application/json" hidden>
-    </label>
+    <span>資料存在本機瀏覽器（localStorage）</span>
   </footer>
 </div>
 

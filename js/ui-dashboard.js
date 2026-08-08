@@ -116,34 +116,25 @@ window.App.UI = window.App.UI || {};
     const BUCKETS = window.App.FairnessChart.BUCKETS;
     const counted = window.App.FairnessChart.countedRange();
     return `
-      <div class="card">
-        <h2>怎麼看這些圖</h2>
+      <details class="card collapse-card">
+        <summary><span class="collapse-title">怎麼看這些圖</span><span class="hint">${counted.label}</span></summary>
         <p class="hint">
-          📅 <strong>${counted.label}</strong>。
-          只有「確定紀錄」過的日子才算，還沒排、或只是預覽的那天不會出現在圖上。
-        </p>
-        <p class="hint">
-          <strong>每個人固定佔一格</strong>（角度都一樣，依名冊順序排），格子往外<strong>伸得越長＝做越多次</strong>；
-          淺色底代表那一格目前是空的，也就是這個人還沒輪到。
-          顏色是拿他的次數跟<strong>公平範圍</strong>比：勤務還沒輪完整圈時（例如擦桌子一天只有3個名額），
-          每人拿 0 次或 1 次都算公平，所以都是灰色；真的超出公平範圍才會變橘色或藍色。
-          公平範圍是<strong>按每個人在營幾天等比例算</strong>的——中途才報到、或提早退伍的人待得比較短，
-          次數本來就會比較少，不會因此被標成偏少。
-          <strong>整張圖越接近灰色、長度越整齊＝分配越平均</strong>。
-          完整數字看旁邊的表格，滑鼠移到格子上也會顯示。
-          固定送便當的兩位不會被排到洗碗與其他雜項勤務，那幾張圖不會把他們算進去；
-          打菜、蓋便當、包便當則只算沒有打菜固定角色的人（打飯、計數、抬飲料那幾位本來就不進輪替）。
-          只排掃廁所的愷宸不做任何勤務，每張圖都不算他。
+          <strong>每個人固定佔一格</strong>，格子往外<strong>伸得越長＝做越多次</strong>；淺色底代表還沒輪到。
+          顏色是拿他的次數跟<strong>公平範圍</strong>比——<strong>整張圖越接近灰色、長度越整齊＝分配越平均</strong>。
+          公平範圍<strong>按每個人在營幾天等比例算</strong>，中途報到或提早退伍的人不會因為次數少就被標成偏少。
+          只有「確定紀錄」過的日子才算。
         </p>
         <div class="legend-row">
           ${BUCKETS.map(
             (b) => `<span class="legend-item"><span class="swatch" style="background:${b.color}"></span>${b.label}</span>`
           ).join("")}
         </div>
-      </div>`;
+      </details>`;
   }
 
   function render() {
+    if (!container()) return; // 容器被搬走或還沒建立時安靜結束
+
     const state = window.App.State.get();
     const active = window.App.TextFormat.sortedMembers(window.App.State.activeMembers());
 

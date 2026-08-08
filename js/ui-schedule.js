@@ -141,39 +141,106 @@ window.App.UI = window.App.UI || {};
       </details>`;
   }
 
+  /** 前一天／後一天，超出勤務期間就回 null（按鈕會變灰） */
+  function shiftDate(dateStr, days) {
+    const S = window.App.State;
+    const d = new Date(dateStr + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    const iso = d.toISOString().slice(0, 10);
+    if (iso < S.DUTY_PERIOD_START || iso > S.DUTY_PERIOD_END) return null;
+    return iso;
+  }
+
+  /*
+   * 日期列：‹ 8/8（六） ›
+   *
+   * 以前只有一個 date input，要換日期得點開系統的日期選擇器；
+   * 但實際上九成的操作是「看今天」跟「排明天」，所以做成左右箭頭一鍵切換，
+   * 底下那行小字仍然是 date input，要跳到別天還是點得到。
+   */
+  function dateNav() {
+    const S = window.App.State;
+    const prev = shiftDate(selectedDate, -1);
+    const next = shiftDate(selectedDate, 1);
+    const today = S.todayStr();
+    const isToday = selectedDate === today;
+    const canJumpToday = today >= S.DUTY_PERIOD_START && today <= S.DUTY_PERIOD_END;
+    return `
+      <div class="card">
+        <div class="date-nav">
+          <button type="button" class="date-step" id="prev-day" ${prev ? "" : "disabled"}>‹</button>
+          <div class="date-current">
+            <strong>${window.App.TextFormat.formatDateHeader(selectedDate)}${isToday ? "　今天" : ""}</strong>
+            <input type="date" id="schedule-date" value="${selectedDate}"
+              min="${S.DUTY_PERIOD_START}" max="${S.DUTY_PERIOD_END}">
+          </div>
+          <button type="button" class="date-step" id="next-day" ${next ? "" : "disabled"}>›</button>
+        </div>
+        ${
+          !isToday && canJumpToday
+            ? `<div class="btn-row"><button type="button" class="big-btn ghost" id="today-btn">回到今天</button></div>`
+            : ""
+        }
+      </div>`;
+  }
+
+  /*
+   * 動作區。
+   *
+   * 以前是「先按預覽、再按確定紀錄」兩顆按鈕，而且沒按預覽之前確定是灰的——
+   * 排班本來就是決定性的（預覽跟確定的結果一定一樣），所以現在一進來就自動算好給你看，
+   * 只留一顆「確定紀錄」。少一個步驟、也少一個要解釋的概念。
+   */
+  function actionCard(committed) {
+    return `
+      <div class="card">
+        <div class="status-line ${committed ? "status-done" : "status-todo"}">
+          <span class="status-dot"></span>
+          ${committed ? "已確定紀錄" : "還沒紀錄（下面是試算結果）"}
+        </div>
+        <div class="btn-row">
+          ${
+            committed
+              ? `<button type="button" class="big-btn ghost" id="recommit-btn">重排這天</button>
+                 <button type="button" class="big-btn ghost" id="uncommit-btn">取消紀錄</button>`
+              : `<button type="button" class="big-btn primary" id="confirm-btn">✅ 確定紀錄</button>`
+          }
+        </div>
+        <div class="btn-row">
+          <button type="button" class="big-btn ghost" id="copy-btn">📋 複製班表文字</button>
+        </div>
+      </div>`;
+  }
+
   function render() {
     const state = window.App.State.get();
     const committed = state.committedDates.includes(selectedDate);
 
+    /*
+     * 沒紀錄過的日子直接算一份出來顯示（不會寫入任何東西）。
+     * 這樣畫面永遠有內容，不用先按一次「預覽」。
+     */
+    if (!committed && (!lastPreview || lastPreview.date !== selectedDate)) {
+      const result = window.App.ScheduleEngine.previewDay(selectedDate);
+      lastPreview = result.ok
+        ? { date: selectedDate, meals: result.meals, daily: result.daily, warnings: result.warnings }
+        : { date: selectedDate, error: result.error };
+    }
+
     container().innerHTML = `
-      <div class="card">
-        <h2>選擇日期</h2>
-        <p class="hint">這次勤務只安排 ${window.App.State.DUTY_PERIOD_START} ～ ${window.App.State.DUTY_PERIOD_END}。</p>
-        <div class="row">
-          <input type="date" id="schedule-date" value="${selectedDate}"
-            min="${window.App.State.DUTY_PERIOD_START}" max="${window.App.State.DUTY_PERIOD_END}">
-          <button type="button" class="primary" id="preview-btn">🔍 預覽（不會紀錄）</button>
-          ${
-            committed
-              ? `<span class="chip chip-inactive">✅ 這天已經確定紀錄過了</span>
-                 <button type="button" id="recommit-btn">重排這天</button>
-                 <button type="button" class="danger" id="uncommit-btn">取消這天的紀錄</button>`
-              : `<button type="button" class="primary" id="confirm-btn" ${lastPreview ? "" : "disabled"}>✅ 確定紀錄</button>`
-          }
-        </div>
-      </div>
-      ${lockCard(selectedDate)}
+      ${dateNav()}
+      ${actionCard(committed)}
       <div id="schedule-result"></div>
+      ${lockCard(selectedDate)}
     `;
 
     const resultEl = container().querySelector("#schedule-result");
     if (committed && state.schedules[selectedDate]) {
       renderResult(resultEl, state.schedules[selectedDate], true);
-      lastPreview = null;
-    } else if (lastPreview && lastPreview.date === selectedDate) {
+    } else if (lastPreview && lastPreview.error) {
+      resultEl.innerHTML = `<div class="warning-box">⚠️ ${lastPreview.error}</div>`;
+    } else if (lastPreview) {
       renderResult(resultEl, lastPreview, false);
-    } else {
-      resultEl.innerHTML = `<div class="empty-state">按上面「預覽」看看這天的班表（不會被記錄），確認沒問題後再按「確定紀錄」。</div>`;
     }
 
     bindEvents();
@@ -181,13 +248,8 @@ window.App.UI = window.App.UI || {};
 
   function renderResult(resultEl, schedule, committed) {
     resultEl.innerHTML = `
-      ${!committed ? `<div class="hint">👀 這是預覽結果，尚未紀錄，可以重複按「預覽」測試，不會影響公平次數。按下「確定紀錄」後看到的會跟這裡一模一樣。</div>` : ""}
       ${schedule.warnings && schedule.warnings.length
         ? `<div class="warning-box">${schedule.warnings.map((w) => "⚠️ " + w).join("<br>")}</div>`
-        : ""
-      }
-      ${schedule.shoppingNotes && schedule.shoppingNotes.length
-        ? `<div class="hint">🛒 ${schedule.shoppingNotes.join("<br>🛒 ")}</div>`
         : ""
       }
       <div class="meal-grid">
@@ -201,34 +263,73 @@ window.App.UI = window.App.UI || {};
 
   function bindEvents() {
     const root = container();
-    const dateInput = root.querySelector("#schedule-date");
-    dateInput.addEventListener("change", () => {
-      selectedDate = dateInput.value;
+
+    /** 換日期：清掉試算結果讓 render() 重新算 */
+    const goTo = (date) => {
+      if (!date) return;
+      selectedDate = date;
       lastPreview = null;
       render();
-      // 文字班表跟著換日期，否則切過去看到的還是上一天的內容
       rerenderOthers();
-    });
+    };
 
-    const previewBtn = root.querySelector("#preview-btn");
-    previewBtn.addEventListener("click", () => {
-      const result = window.App.ScheduleEngine.previewDay(selectedDate);
-      if (!result.ok) {
-        alert(result.error);
-        return;
-      }
-      lastPreview = { date: selectedDate, meals: result.meals, daily: result.daily, warnings: result.warnings };
-      render();
-      rerenderOthers();
-    });
+    const dateInput = root.querySelector("#schedule-date");
+    if (dateInput) dateInput.addEventListener("change", () => goTo(dateInput.value));
+
+    const prevBtn = root.querySelector("#prev-day");
+    if (prevBtn) prevBtn.addEventListener("click", () => goTo(shiftDate(selectedDate, -1)));
+    const nextBtn = root.querySelector("#next-day");
+    if (nextBtn) nextBtn.addEventListener("click", () => goTo(shiftDate(selectedDate, 1)));
+    const todayBtn = root.querySelector("#today-btn");
+    if (todayBtn) todayBtn.addEventListener("click", () => goTo(window.App.State.todayStr()));
+
+    /*
+     * 複製班表文字。組法跟 LINE 卡片同源（js/textFormat.js），
+     * 所以複製出去的跟機器人回的內容一致。
+     */
+    const copyBtn = root.querySelector("#copy-btn");
+    if (copyBtn) {
+      copyBtn.addEventListener("click", async () => {
+        const state = window.App.State.get();
+        const schedule = state.schedules[selectedDate] || lastPreview;
+        if (!schedule || schedule.error) {
+          alert("這天還沒有班表可以複製。");
+          return;
+        }
+        const TF = window.App.TextFormat;
+        const text = TF.buildMealText(selectedDate, schedule, TF.displayNameMap());
+        let ok = false;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+          }
+        } catch (err) {
+          ok = false;
+        }
+        if (!ok) {
+          // 不能用剪貼簿 API（http 或舊瀏覽器）時退回「選起來讓他自己複製」
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            ok = document.execCommand("copy");
+          } catch (err) {
+            ok = false;
+          }
+          document.body.removeChild(ta);
+        }
+        copyBtn.textContent = ok ? "✅ 已複製，去貼到群組" : "請長按畫面手動複製";
+        setTimeout(() => (copyBtn.textContent = "📋 複製班表文字"), 1800);
+      });
+    }
 
     const confirmBtn = root.querySelector("#confirm-btn");
     if (confirmBtn) {
       confirmBtn.addEventListener("click", () => {
-        if (!lastPreview || lastPreview.date !== selectedDate) {
-          alert("請先按「預覽」看過這天的班表再確定紀錄。");
-          return;
-        }
         const result = window.App.ScheduleEngine.commitDay(selectedDate);
         if (!result.ok) {
           alert(result.error);

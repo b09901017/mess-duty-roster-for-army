@@ -23,6 +23,13 @@ window.App.UI = window.App.UI || {};
   }
 
   function render() {
+    /*
+     * 2026/08/08 起「文字班表」不再是獨立分頁——內容只剩【全日】一段，
+     * 跟班表頁完全重複，所以併成班表頁上的一顆「📋 複製班表文字」按鈕。
+     * 這個模組留著沒刪（哪天要分頁回來直接把 <section id="tab-textschedule"> 加回去就好），
+     * 但容器不在時要安靜結束，不然每次 renderAll 都會噴 null。
+     */
+    if (!container()) return;
     const date = window.App.UI.Schedule ? window.App.UI.Schedule.getSelectedDate() : window.App.State.DUTY_PERIOD_START;
     const state = window.App.State.get();
     const committed = state.schedules[date];

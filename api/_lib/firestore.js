@@ -111,6 +111,32 @@ function docUrl(projectId, collection, docId) {
   return `${FIRESTORE_URL}/${encodeURIComponent(projectId)}/databases/(default)/documents/${collection}/${encodeURIComponent(docId)}`;
 }
 
+/*
+ * briefings 這個集合被 Firestore 規則擋掉時的說明。
+ *
+ * 403 幾乎一定是「規則只寫了 rosters 那一段」——匿名登入本身沒問題（不然會是 401，
+ * 而且讀名冊那邊也會一起失敗）。這種錯只講「權限不足」使用者根本不知道要去改哪裡，
+ * 所以直接把要貼的規則寫進錯誤訊息。
+ */
+function briefingPermissionHint(action) {
+  return (
+    `Firestore 規則沒有開放 briefings 這個集合，所以${action}不了班長通知。\n` +
+    `到 Firebase 主控台 → Firestore Database → 規則，把規則換成下面這段再按「發布」：\n\n` +
+    `rules_version = '2';\n` +
+    `service cloud.firestore {\n` +
+    `  match /databases/{database}/documents {\n` +
+    `    match /rosters/{roomId} {\n` +
+    `      allow read, write: if request.auth != null;\n` +
+    `    }\n` +
+    `    match /briefings/{roomId} {\n` +
+    `      allow read, write: if request.auth != null;\n` +
+    `    }\n` +
+    `  }\n` +
+    `}\n\n` +
+    `（原本只有 rosters 那一段，要多加 briefings 那一段。App 的「☁️ 雲端同步」分頁也可以直接複製。）`
+  );
+}
+
 function requireEnv(env) {
   const apiKey = env.FIREBASE_API_KEY;
   const projectId = env.FIREBASE_PROJECT_ID;
